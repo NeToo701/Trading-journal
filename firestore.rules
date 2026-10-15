@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Кожен користувач бачить і змінює тільки свої дані: users/<його uid>/...
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    // Усе інше заборонено
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

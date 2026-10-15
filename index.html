@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com; frame-src https://*.firebaseapp.com https://*.web.app; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0b1424">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Журнал">
+  <title>Журнал трейдера</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="preload" href="assets/fonts/inter-400.woff" as="font" type="font/woff" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="assets/journal.css">
+  <script src="js/theme.js"></script>
+</head>
+<body class="jr-body">
+  <a class="jr-skip" href="#jr-main">До вмісту</a>
+  <header class="top jr-top">
+    <div class="brand">
+      <svg viewBox="0 0 26 26" aria-hidden="true"><rect x="3" y="3" width="16" height="20" rx="2.5" fill="none" stroke="#5aa9ff" stroke-width="2"/><path d="M7 9h8M7 13h8M7 17h5" stroke="#2dd4a4" stroke-width="2" stroke-linecap="round"/><path d="M21 7v14" stroke="#ff6b81" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Журнал трейдера <span class="brand-sub">особистий записник, працює без сервера</span></span>
+    </div>
+    <div class="top-end">
+      <button type="button" class="jr-btn jr-install" id="jr-install" hidden>Встановити як застосунок</button>
+      <div class="theme" id="theme" role="radiogroup" aria-label="Тема оформлення">
+        <label><input type="radio" name="theme" value="system"><span title="Як в операційній системі">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.5" width="12.5" height="8.5" rx="1.5"/><path d="M5.5 14h5M8 11v3"/></svg>
+          <span class="t-label">Системна</span></span></label>
+        <label><input type="radio" name="theme" value="light"><span title="Світла тема">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
+          <span class="t-label">Світла</span></span></label>
+        <label><input type="radio" name="theme" value="dark"><span title="Темна тема">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1Z"/></svg>
+          <span class="t-label">Темна</span></span></label>
+      </div>
+      <div class="account"><button type="button" class="acc-btn" id="acc-btn" aria-haspopup="dialog"><span class="acc-name">Дані й хмара</span></button></div>
+    </div>
+  </header>
+
+  <dialog class="acc-dialog" id="acc-dialog" aria-labelledby="acc-title">
+    <div class="acc-head">
+      <h2 id="acc-title">Дані й хмара</h2>
+      <button type="button" class="acc-x" id="acc-close" aria-label="Закрити">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>
+      </button>
+    </div>
+    <div id="acc-body"></div>
+  </dialog>
+
+  <div class="jr-shell" id="jr-shell">
+    <aside class="jr-side" id="jr-side" aria-label="Журнали" hidden></aside>
+    <main class="jr-main" id="jr-main" tabindex="-1">
+      <p class="jr-dim jr-boot" id="jr-boot">Завантажую…</p>
+      <noscript><p>Для роботи журналу потрібен JavaScript.</p></noscript>
+    </main>
+  </div>
+
+  <footer class="foot">
+    <p>Журнал це особистий записник. Дані зберігаються у твоєму браузері (і, якщо ти ввімкнув хмару, у твоєму акаунті Firebase). Це не фінансова порада й не торговий сигнал.</p>
+  </footer>
+  <div class="jr-toasts" id="jr-toasts" role="status" aria-live="polite"></div>
+
+  <script src="js/ui.js"></script>
+  <script src="lib/jl-util.js"></script>
+  <script src="lib/jl-schema.js"></script>
+  <script src="lib/jl-stats.js"></script>
+  <script src="lib/jl-import.js"></script>
+  <script src="lib/jl-db.js"></script>
+  <script src="lib/jl-api.js"></script>
+  <script src="lib/jl-backup.js"></script>
+  <script src="lib/jl-sync.js"></script>
+  <script src="lib/jl-firebase.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="js/jr-core.js"></script>
+  <script src="js/jr-fields.js"></script>
+  <script src="js/jr-entries.js"></script>
+  <script src="js/jr-stats.js"></script>
+  <script src="js/jr-schema.js"></script>
+  <script src="js/jr-review.js"></script>
+  <script src="js/jr-import.js"></script>
+  <script src="js/jr-account.js"></script>
+  <script src="js/journal.js"></script>
+</body>
+</html>

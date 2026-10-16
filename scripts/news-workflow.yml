@@ -1,0 +1,45 @@
+# Публікує сайт на GitHub Pages і раз на ~30 хвилин оновлює календар новин (data/news.json).
+# Увімкнення: Settings -> Pages -> Source: GitHub Actions. Докладніше в README, розділ «Календар новин».
+name: Сайт і календар новин
+
+on:
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Завантажити календар
+        env:
+          PREV_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/news.json
+        run: node scripts/fetch-news.js
+      - name: Зібрати сайт
+        run: |
+          mkdir _site
+          rsync -a --exclude '.git' --exclude '.github' --exclude '_site' --exclude 'tests' --exclude 'scripts' --exclude '*.md' ./ _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

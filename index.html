@@ -19,14 +19,19 @@
   <link rel="stylesheet" href="assets/journal.css">
   <script src="js/theme.js"></script>
 </head>
-<body class="jr-body">
+<body class="jr-body" data-view="journal">
   <a class="jr-skip" href="#jr-main">До вмісту</a>
   <header class="top jr-top">
     <div class="brand">
       <svg viewBox="0 0 26 26" aria-hidden="true"><rect x="3" y="3" width="16" height="20" rx="2.5" fill="none" stroke="#5aa9ff" stroke-width="2"/><path d="M7 9h8M7 13h8M7 17h5" stroke="#2dd4a4" stroke-width="2" stroke-linecap="round"/><path d="M21 7v14" stroke="#ff6b81" stroke-width="2" stroke-linecap="round"/></svg>
       <span>Журнал трейдера <span class="brand-sub">особистий записник, працює без сервера</span></span>
     </div>
+    <nav class="tabs" aria-label="Розділи">
+      <a href="#journal" id="tab-journal" aria-current="page">Журнал</a>
+      <a href="#calendar" id="tab-calendar">Календар новин</a>
+    </nav>
     <div class="top-end">
+      <a class="next-chip" id="next-chip" href="#calendar" hidden></a>
       <button type="button" class="jr-btn jr-install" id="jr-install" hidden>Встановити як застосунок</button>
       <div class="theme" id="theme" role="radiogroup" aria-label="Тема оформлення">
         <label><input type="radio" name="theme" value="system"><span title="Як в операційній системі">
@@ -61,9 +66,34 @@
     </main>
   </div>
 
+  <main class="cal" id="calendar-view" hidden>
+    <aside class="cal-side">
+      <section class="panel" aria-labelledby="flt-h">
+        <h2 id="flt-h">Фільтри</h2>
+        <div class="cal-form" id="cal-filters"></div>
+      </section>
+      <section class="panel" aria-labelledby="alr-h">
+        <h2 id="alr-h">Нагадування</h2>
+        <div class="cal-form" id="cal-alerts"></div>
+      </section>
+    </aside>
+    <section class="cal-main" aria-labelledby="cal-h">
+      <div class="panel cal-head">
+        <div>
+          <h1 id="cal-h">Економічний календар</h1>
+          <p class="cal-meta" id="cal-meta">Завантажую події…</p>
+        </div>
+        <div class="field cal-tz" id="cal-tz"></div>
+      </div>
+      <div id="cal-status" class="status" hidden></div>
+      <div id="cal-list" aria-live="polite"></div>
+    </section>
+  </main>
+
   <footer class="foot">
     <p>Журнал це особистий записник. Дані зберігаються у твоєму браузері (і, якщо ти ввімкнув хмару, у твоєму акаунті Firebase). Це не фінансова порада й не торговий сигнал.</p>
   </footer>
+  <div class="toasts" id="toasts" role="region" aria-label="Нагадування про новини" aria-live="polite"></div>
   <div class="jr-toasts" id="jr-toasts" role="status" aria-live="polite"></div>
 
   <script src="js/ui.js"></script>
@@ -71,6 +101,7 @@
   <script src="lib/jl-schema.js"></script>
   <script src="lib/jl-stats.js"></script>
   <script src="lib/jl-import.js"></script>
+  <script src="lib/jl-news.js"></script>
   <script src="lib/jl-db.js"></script>
   <script src="lib/jl-api.js"></script>
   <script src="lib/jl-backup.js"></script>
@@ -86,5 +117,6 @@
   <script src="js/jr-import.js"></script>
   <script src="js/jr-account.js"></script>
   <script src="js/journal.js"></script>
+  <script src="js/jr-calendar.js"></script>
 </body>
 </html>

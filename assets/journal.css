@@ -277,7 +277,6 @@ circle.jr-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
   .jr-toast { animation: jr-in .16s ease-out; }
   @keyframes jr-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 }
-@media (display-mode: standalone) { .jr-top .tabs { display: none; } }
 
 /* ---------- підписи полів, «необов'язково» і підказка «?» ---------- */
 .jr-lblrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; }

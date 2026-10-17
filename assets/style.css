@@ -409,8 +409,6 @@ body:not([data-view="analysis"]) .only-analysis, body:not([data-view="calendar"]
 .live-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
 .live-chip[data-state="live"] { color: var(--text); }
 .live-chip[data-state="live"] i { background: var(--bull); }
-.live-chip[data-state="demo"] { border-color: var(--amber); color: var(--amber); }
-.live-chip[data-state="demo"] i { background: var(--amber); }
 .live-chip[data-state="connecting"] i, .live-chip[data-state="reconnecting"] i { background: var(--amber); }
 .live-chip[data-state="stopped"] i { background: var(--bear); }
 @media (prefers-reduced-motion: no-preference) {

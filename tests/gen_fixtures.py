@@ -10,6 +10,11 @@ backend = Path(sys.argv[1] if len(sys.argv) > 1 else "../backend").resolve()
 sys.path.insert(0, str(backend))
 from app import journal, journal_import as ji, journal_stats as js   # noqa: E402
 from app.accounts import AccountError                                  # noqa: E402
+from app import news as nw                                             # noqa: E402
+from app.news.glossary import describe                                 # noqa: E402
+from app.service import AnalysisService                                # noqa: E402
+from types import SimpleNamespace                                      # noqa: E402
+from datetime import datetime, timezone                                # noqa: E402
 
 rnd = random.Random(20260615)
 OUT = {}
@@ -267,6 +272,45 @@ OUT["converter"] = conv
 # ------------------------------------------------------------------ допоміжні
 OUT["safe_filename"] = [{"v": v, "result": journal.safe_filename(v)} for v in ["a.png", "../../etc/passwd", "ім'я файла.jpg", "a" * 200 + ".png", "", "  ", "a b?c*d.png", "COM1", ".hidden", "name.", "a/b\\c", "😀.png", "\x00x", "x" * 119 + "ї.png"]]
 OUT["csv_cell"] = [{"v": v, "result": journal.csv_cell(v)} for v in ["=1+1", "+1", "-1", "@a", "\tx", "\rx", "ok", "", 5, 1.5, None, "  =x", "'x"]]
+
+# ------------------------------------------------------------------ календар новин
+TITLES = ["Non-Farm Employment Change", "ADP Non-Farm Employment Change", "Unemployment Rate", "Unemployment Claims", "Core PCE Price Index m/m", "CPI y/y", "Core CPI m/m",
+          "PPI m/m", "Federal Funds Rate", "FOMC Press Conference", "FOMC Statement", "FOMC Meeting Minutes", "Fed Chair Powell Speaks", "ECB President Lagarde Speaks",
+          "Official Bank Rate", "Main Refinancing Rate", "Prelim GDP q/q", "Retail Sales m/m", "ISM Manufacturing PMI", "JOLTS Job Openings", "CB Consumer Confidence",
+          "Crude Oil Inventories", "10-y Bond Auction", "Empire State Manufacturing Index", "Trade Balance", "Bank Holiday", "Something Unknown", "Річні збори", "x" * 130,
+          "  Padded Title  ", "ІНФЛЯЦІЯ CPI", "Cash Rate Monetary Policy"]
+DATES_NW = ["2026-01-13T08:30:00-05:00", "2026-01-13T13:30:00Z", "2026-01-13T13:30:00+00:00", "2026-01-13T13:30:00+02:00", "2026-01-13T13:30+0530", "2026-01-13 13:30:00+01:00",
+            "2026-01-13T13:30:00.250+00:00", "2026-01-13T13:30:00.123456789Z", "2026-01-13T13:30:00", "2026-01-13", "garbage", "", "2026-02-30T10:00:00Z", "2026-01-13T25:00:00Z",
+            "2026-01-13T13:30:61Z", "2026-12-31T23:59:59-08:00", "2026-03-08T02:30:00-05:00", "2025-12-29T00:00:00+00:00", "2026-01-13T13Z", None, 5, "2026-01-13T13:30:00-24:00"]
+def nw_item():
+    r = rnd.random()
+    it = {"title": rnd.choice(TITLES), "country": rnd.choice(["USD", "EUR", "GBP", "JPY", "usd", "All", "AU", "ПЛН", "US1", " eur ", "", None, "CHF"]),
+          "date": rnd.choice(DATES_NW), "impact": rnd.choice(["High", "Medium", "Low", "Holiday", "Non-Economic", "", None, "HIGH", "x"]),
+          "forecast": rnd.choice(["", "1.2%", "250K", None, "x" * 40, " 0.3% ", 5]), "previous": rnd.choice(["", "1.1%", "240K", None, "y" * 30])}
+    if r < 0.03: return rnd.choice([None, 5, "x", [], {"title": "only"}])
+    if r < 0.06: it.pop(rnd.choice(["title", "date", "country"]), None)
+    return it
+nw_cases = [[nw_item() for _ in range(rnd.randint(0, 60))] for _ in range(12)] + [[], "notalist", {"a": 1}, None]
+def nw_capture(items):
+    try:
+        return {"ok": [e.to_dict() for e in nw.parse_faireconomy(items)]}
+    except nw.NewsError as e:
+        return {"error": str(e)}
+OUT["news_parse"] = [{"items": c, "result": nw_capture(c)} for c in nw_cases]
+OUT["news_describe"] = [{"title": t, "impact": i, "result": list(describe(t, i))} for t in TITLES + ["Core CPI", "FOMC Minutes", "BoE Holiday"] for i in ("high", "medium", "low", "holiday", "weird")]
+
+base_items = [{"title": t, "country": rnd.choice(["USD", "EUR", "GBP", "JPY"]), "date": f"2026-01-{rnd.randint(5, 25):02d}T{rnd.randint(0, 23):02d}:{rnd.choice(['00', '15', '30', '45'])}:00-05:00",
+               "impact": rnd.choice(["High", "Medium", "Low", "Holiday"]), "forecast": "1%", "previous": "2%"} for t in TITLES[:26] * 3]
+store = nw.NewsStore(nw.StaticProvider(nw.parse_faireconomy(base_items)), clock=lambda: 1768000000.0)
+snap = store.snapshot()
+views = []
+for now_iso in ("2026-01-09T12:00:00+00:00", "2026-01-15T09:30:00+00:00", "2026-01-31T00:00:00+00:00", "2026-01-01T00:00:00+00:00"):
+    now = datetime.fromisoformat(now_iso)
+    ns = SimpleNamespace(news=store, _clock=lambda n=now: n.timestamp())
+    for days, past in ((7, 6), (1, 0), (14, 48), (30, 100), (0, -5), (3, 24)):
+        res = AnalysisService.calendar(ns, days, past)
+        views.append({"now": now_iso, "days": days, "past": past, "result": res})
+OUT["news_view"] = {"items": base_items, "fetched_at": snap.fetched_at, "views": views}
 
 p = Path(__file__).parent / "fixtures" / "parity.json.gz"
 p.write_bytes(gzip.compress(json.dumps(OUT, ensure_ascii=False, default=str).encode("utf-8"), 9, mtime=0))

@@ -115,7 +115,7 @@
     const dd = prefs.unit === "r" ? s.max_drawdown_r : prefs.unit === "pct" ? s.max_drawdown_pct : s.max_drawdown;
     return el("div", { class: "jr-kpis" },
       card("Результат", total == null ? "—" : `${show(total)} ${u}`, `${s.trades} угод`, fmt.sign(total)),
-      card("Прибуткових", s.win_rate == null ? "—" : `${plain(s.win_rate, 1)}%`, `${s.wins} з ${s.trades}; збиткових ${s.losses}; беззбиток ${s.be}`),
+      card("Winrate", s.win_rate == null ? "—" : `${plain(s.win_rate, 1)}%`, `${s.wins} з ${s.trades}; збиткових ${s.losses}; беззбиток ${s.be}`),
       card("Профіт-фактор", s.profit_factor == null ? "—" : plain(s.profit_factor), "сума виграшів ÷ сума збитків"),
       card("Середня угода", avg == null ? "—" : `${show(avg)} ${u}`, null, fmt.sign(avg)),
       card("Співвідношення", s.payoff == null ? "—" : plain(s.payoff), "середній виграш ÷ середній збиток"),
@@ -185,12 +185,12 @@
       return el("tr", null,
         el("th", { scope: "row", text: r.label }),
         el("td", { "data-label": "Угод", text: String(r.trades) }),
-        el("td", { "data-label": "Прибуткових", text: r.win_rate == null ? "—" : `${plain(r.win_rate, 0)}% (${r.wins}/${r.trades})` }),
+        el("td", { "data-label": "Winrate", text: r.win_rate == null ? "—" : `${plain(r.win_rate, 0)}% (${r.wins}/${r.trades})` }),
         el("td", { "data-label": "Результат, " + u, class: "jr-num " + fmt.sign(v), text: v == null ? "—" : show(v) }),
         el("td", { class: "jr-barcell", "aria-hidden": "true" }, el("span", { class: "jr-barbox" }, bar)));
     });
     return el("div", { class: "jr-table-wrap" }, el("table", { class: "jr-table jr-table-static" },
-      el("thead", null, el("tr", null, el("th", { scope: "col", text: "Період" }), el("th", { scope: "col", text: "Угод" }), el("th", { scope: "col", text: "Прибуткових" }), el("th", { scope: "col", text: "Результат, " + u }), el("th", { scope: "col", class: "jr-barcell", text: "" }))),
+      el("thead", null, el("tr", null, el("th", { scope: "col", text: "Період" }), el("th", { scope: "col", text: "Угод" }), el("th", { scope: "col", text: "Winrate" }), el("th", { scope: "col", text: "Результат, " + u }), el("th", { scope: "col", class: "jr-barcell", text: "" }))),
       el("tbody", null, body)));
   }
 
@@ -242,13 +242,13 @@
     const best = rows.filter((r) => r.trades >= 3).sort((a, b) => (b.avg_r ?? -1e9) - (a.avg_r ?? -1e9))[0];
     return el("div", null,
       el("div", { class: "jr-table-wrap" }, el("table", { class: "jr-table jr-table-static", id: "jr-setups-table" },
-        el("thead", null, el("tr", null, ["Сетап", "Угод", "Прибуткових", "Профіт-фактор", "Сер. результат, R", "Результат, " + u].map((t) => el("th", { scope: "col", text: t })))),
+        el("thead", null, el("tr", null, ["Сетап", "Угод", "Winrate", "Профіт-фактор", "Сер. результат, R", "Результат, " + u].map((t) => el("th", { scope: "col", text: t })))),
         el("tbody", null, rows.map((r) => {
           const v = val(r);
           return el("tr", null,
             el("th", { scope: "row", text: r.name }),
             el("td", { "data-label": "Угод", text: String(r.trades) }),
-            el("td", { "data-label": "Прибуткових", text: r.win_rate == null ? "—" : `${plain(r.win_rate, 0)}% (${r.wins}/${r.trades})` }),
+            el("td", { "data-label": "Winrate", text: r.win_rate == null ? "—" : `${plain(r.win_rate, 0)}% (${r.wins}/${r.trades})` }),
             el("td", { "data-label": "Профіт-фактор", text: r.profit_factor == null ? "—" : plain(r.profit_factor) }),
             el("td", { "data-label": "Сер. результат, R", class: "jr-num " + fmt.sign(r.avg_r), text: r.avg_r == null ? "—" : show(r.avg_r) }),
             el("td", { "data-label": "Результат, " + u, class: "jr-num " + fmt.sign(v), text: v == null ? "—" : show(v) }));
@@ -261,7 +261,7 @@
     if (!rows || !rows.length) return el("section", { class: "jr-card jr-mini" }, el("h3", { text: title }), el("p", { class: "jr-dim", text: "Немає даних. Заповнюй це поле в записах." }));
     return el("section", { class: "jr-card jr-mini" }, el("h3", { text: title }),
       el("table", { class: "jr-table jr-table-static jr-mini-table" },
-        el("thead", null, el("tr", null, el("th", { scope: "col", text: "Значення" }), el("th", { scope: "col", text: "Угод" }), el("th", { scope: "col", text: "Прибуткових" }), el("th", { scope: "col", text: unitLabel(JR.currentJournal()) }))),
+        el("thead", null, el("tr", null, el("th", { scope: "col", text: "Значення" }), el("th", { scope: "col", text: "Угод" }), el("th", { scope: "col", text: "Winrate" }), el("th", { scope: "col", text: unitLabel(JR.currentJournal()) }))),
         el("tbody", null, rows.map((r) => {
           const v = val(r);
           return el("tr", null, el("th", { scope: "row", text: r.name }), el("td", { text: String(r.trades) }),

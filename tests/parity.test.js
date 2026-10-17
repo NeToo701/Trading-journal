@@ -3,7 +3,7 @@
 "use strict";
 const fs = require("fs"), zlib = require("zlib"), path = require("path");
 const root = path.join(__dirname, "..");
-for (const f of ["jl-util", "jl-schema", "jl-stats", "jl-import"]) require(path.join(root, "lib", f + ".js"));
+for (const f of ["jl-util", "jl-schema", "jl-stats", "jl-import", "jl-news"]) require(path.join(root, "lib", f + ".js"));
 const JL = globalThis.JL;
 const FX = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(__dirname, "fixtures", "parity.json.gz"))).toString("utf8"));
 
@@ -81,6 +81,14 @@ for (const [i, c] of FX.converter.entries()) {
 
 for (const c of FX.safe_filename) check("safe_filename", JSON.stringify(c.v), JL.safeFilename(c.v), c.result, c.v);
 for (const c of FX.csv_cell) check("csv_cell", JSON.stringify(c.v), JL.csvCell(c.v), c.result, c.v);
+
+// календар новин
+for (const [i, c] of FX.news_parse.entries()) check("news_parse", `набір ${i}`, (() => { try { return { ok: JL.news.parseFaireconomy(c.items) }; } catch (e) { return { error: e.message }; } })(), c.result, c.items);
+for (const c of FX.news_describe) check("news_describe", `${c.title} / ${c.impact}`, JL.news.describe(c.title, c.impact), c.result, [c.title, c.impact]);
+{
+  const snap = { events: JL.news.parseFaireconomy(FX.news_view.items), source: "static", error: null, stale: false, fetched_at: FX.news_view.fetched_at * 1000 };
+  for (const v of FX.news_view.views) check("news_view", `${v.now} days=${v.days} past=${v.past}`, JL.news.view(snap, Date.parse(v.now), v.days, v.past), v.result, v);
+}
 
 console.log(failed ? `\nПровалено ${failed} з ${total}` : `OK: ${total} звірок з Python, усе збігається`);
 process.exit(failed ? 1 : 0);

@@ -68,7 +68,7 @@
 
   /* Повертає { node, get() }. get() віддає значення для запису або null, якщо поле порожнє. */
   F.input = function (f, value, ctx) {
-    const id = "jr-f-" + f.key;
+    const id = "jr-f-" + f.key + (ctx && ctx.suffix ? "-" + ctx.suffix : "");      // suffix: однакові поля в багатьох картках розбору мають різні id
     const wrap = (inner, cls) => el("div", { class: "jr-field " + (cls || ""), "data-key": f.key }, ...inner);
     const hintText = f.key === "setup" ? "Починай вводити: з'являться раніше використані назви. Нова назва збережеться сама." : f.hint;
     const hint = hintText ? el("small", { id: id + "-hint", text: hintText }) : null;

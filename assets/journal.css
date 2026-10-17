@@ -364,3 +364,52 @@ circle.jr-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
 .acc-row > button { flex: 1 1 auto; }
 .acc-primary, .acc-secondary, .acc-delete { height: auto; min-height: 40px; padding-top: 8px; padding-bottom: 8px; line-height: 1.25; }
 #acc-body { overflow-x: hidden; }
+
+/* ---------- згортання панелі журналів (комп'ютер) ---------- */
+.jr-side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jr-side-title { font-size: 12.5px; color: var(--muted); font-weight: 650; }
+.jr-side-collapse { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.jr-side-collapse:hover { border-color: var(--faint); color: var(--text); }
+.jr-side-collapse:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (min-width: 921px) {
+  .jr-shell.is-side-collapsed { grid-template-columns: 52px minmax(0, 1fr); }
+  .jr-shell.is-side-collapsed.is-solo { grid-template-columns: minmax(0, 1fr); }
+  .jr-shell.is-side-collapsed .jr-side { padding: 10px 8px; justify-items: center; overflow: visible; }
+  .jr-shell.is-side-collapsed .jr-side > :not(.jr-side-top) { display: none; }
+  .jr-shell.is-side-collapsed .jr-side-title { display: none; }
+}
+@media (max-width: 920px) { .jr-side-top { display: none; } }
+
+/* ---------- прокрутка таблиці записів ---------- */
+.jr-table-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.jr-table-nav[hidden] { display: none; }
+.jr-table-nav-hint { flex: 1 1 auto; text-align: center; font-size: 12.5px; }
+
+/* ---------- кнопка «Вставити» біля завантаження файлів ---------- */
+.jr-media-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+.jr-paste { flex-direction: column; gap: 4px; min-width: 112px; height: auto; border-style: dashed; border-width: 2px; border-radius: 10px; }
+.jr-paste:hover { border-color: var(--accent); }
+@media (max-width: 720px) { .jr-media-row { grid-template-columns: minmax(0, 1fr); } .jr-paste { flex-direction: row; min-height: 44px; } }
+
+/* ---------- розбір місяця: налаштовувані блоки ---------- */
+.jr-kpi-h.is-bad { color: var(--bear); }
+.jr-rv-mgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.jr-rv-mgrid > .is-wide { grid-column: 1 / -1; }
+.jr-rv-field { margin: 0; }
+@media (max-width: 720px) { .jr-rv-mgrid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- вікно «Налаштувати розбір» ---------- */
+.jr-cfg-tabs { flex-wrap: wrap; justify-self: start; margin-bottom: 0; }
+.jr-cfg-body { display: grid; gap: 12px; align-content: start; max-height: min(58vh, 560px); overflow-y: auto; padding-right: 4px; }
+.jr-cfg-sub { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, 200px) minmax(200px, 230px); gap: 8px; }
+.jr-cfg-formula { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 13px; }
+.jr-cfg-msg { min-height: 1.2em; font-size: 12px; color: var(--muted); }
+.jr-cfg-msg.is-bad, .jr-cfg-val.is-bad { color: var(--bear); }
+.jr-cfg-val { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.jr-cfg-help { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); display: grid; gap: 8px; }
+.jr-cfg-help summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.jr-cfg-vars { display: flex; flex-wrap: wrap; gap: 4px; }
+.jr-cfg-var { padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: 12px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; cursor: pointer; }
+.jr-cfg-var:hover { border-color: var(--accent); }
+.jr-cfg-var:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 720px) { .jr-cfg-sub { grid-template-columns: minmax(0, 1fr); } .jr-cfg-body { max-height: 60vh; } }

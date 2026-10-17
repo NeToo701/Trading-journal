@@ -82,11 +82,31 @@
         tr.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); E.edit(e.id); } });
         return tr;
       });
-      list.replaceChildren(el("div", { class: "jr-table-wrap" }, el("table", { class: "jr-table" }, el("thead", null, head), el("tbody", null, body))),
-        el("p", { class: "jr-count", text: `Показано ${loaded.length} із ${total}` }));
+      const wrap = el("div", { class: "jr-table-wrap" }, el("table", { class: "jr-table" }, el("thead", null, head), el("tbody", null, body)));
+      list.replaceChildren(tableNav(wrap), wrap, el("p", { class: "jr-count", text: `Показано ${loaded.length} із ${total}` }));
     }
     const more = $("#jr-more");
     if (more) more.hidden = loaded.length >= total;
+  }
+
+  /* Кнопки над таблицею: прокрутити її вбік до кінця й назад. Повзунок прокрутки таблиці стоїть під нею, а при багатьох угодах
+     до нього довго гортати сторінку. Показуються лише тоді, коли таблиця ширша за екран. */
+  function tableNav(wrap) {
+    const smooth = () => (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+    const start = el("button", { type: "button", class: "jr-btn is-quiet", id: "jr-scroll-start", text: "« На початок", onclick: () => wrap.scrollTo({ left: 0, behavior: smooth() }) });
+    const end = el("button", { type: "button", class: "jr-btn is-quiet", id: "jr-scroll-end", text: "На кінець »", onclick: () => wrap.scrollTo({ left: wrap.scrollWidth, behavior: smooth() }) });
+    const node = el("div", { class: "jr-table-nav", id: "jr-table-nav", role: "group", "aria-label": "Прокрутка таблиці вбік", hidden: true },
+      start, el("span", { class: "jr-dim jr-table-nav-hint", text: "Таблиця ширша за екран" }), end);
+    const update = () => {
+      const max = wrap.scrollWidth - wrap.clientWidth;
+      node.hidden = max <= 2;
+      start.disabled = wrap.scrollLeft <= 1;
+      end.disabled = wrap.scrollLeft >= max - 1;
+    };
+    wrap.addEventListener("scroll", update, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(update).observe(wrap); else window.addEventListener("resize", update);
+    requestAnimationFrame(update);
+    return node;
   }
 
   // ---------------------------------------------------------------- форма запису
@@ -240,11 +260,34 @@
     input.addEventListener("change", () => { addFiles([...input.files]); input.value = ""; });
     const drop = el("label", { class: "jr-drop", for: input.id },
       el("strong", { text: "Додати фото або відео" }),
-      el("span", { text: `Перетягни сюди, натисни або встав зі скріншота (Ctrl+V). Фото до ${limits.image_mb} МБ, відео до ${limits.video_mb} МБ.` }));
+      el("span", { text: `Перетягни сюди, натисни або встав зі скріншота (Ctrl+V чи кнопка «Вставити»). Фото до ${limits.image_mb} МБ, відео до ${limits.video_mb} МБ.` }));
     ["dragenter", "dragover"].forEach((n) => drop.addEventListener(n, (ev) => { ev.preventDefault(); drop.classList.add("is-over"); }));
     ["dragleave", "drop"].forEach((n) => drop.addEventListener(n, (ev) => { ev.preventDefault(); drop.classList.remove("is-over"); }));
     drop.addEventListener("drop", (ev) => addFiles([...ev.dataTransfer.files]));
-    const section = el("section", { class: "jr-media", "aria-label": field.label }, el("h3", { text: field.label }), drop, input, err, grid);
+    // Кнопка «Вставити»: бере зображення з буфера обміну (скріншот, скопійоване фото) без Ctrl+V
+    const warn = (t) => { err.textContent = t; err.hidden = false; };
+    const paste = el("button", { type: "button", class: "jr-btn jr-paste", id: "jr-paste-" + field.key, title: "Вставити фото чи скріншот з буфера обміну",
+      onclick: async () => {
+        err.hidden = true;
+        if (!navigator.clipboard || !navigator.clipboard.read) { warn("Цей браузер не дозволяє читати буфер обміну кнопкою. Натисни Ctrl+V (на Mac ⌘V), коли відкрито цю форму."); return; }
+        try {
+          const found = [];
+          for (const it of await navigator.clipboard.read()) {
+            const type = it.types.find((t) => t.startsWith("image/") && t !== "image/svg+xml");
+            if (!type) continue;
+            const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[type];
+            if (!ext) continue;
+            const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
+            const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+            found.push(new File([await it.getType(type)], `pasted-${stamp}${found.length ? "-" + (found.length + 1) : ""}.${ext}`, { type }));
+          }
+          if (!found.length) { warn("У буфері обміну немає зображення. Скопіюй скріншот чи фото і натисни «Вставити» ще раз."); return; }
+          addFiles(found);
+        } catch (e) {
+          warn(e && e.name === "NotAllowedError" ? "Браузер не дав доступ до буфера обміну. Дозволь його в налаштуваннях сайту або натисни Ctrl+V." : "Не вдалося вставити з буфера обміну. Спробуй Ctrl+V.");
+        }
+      } }, el("span", { "aria-hidden": "true", text: "📋" }), el("span", { text: "Вставити" }));
+    const section = el("section", { class: "jr-media", "aria-label": field.label }, el("h3", { text: field.label }), el("div", { class: "jr-media-row" }, drop, paste), input, err, grid);
     // Вставка з буфера: скріншот або скопійований у провіднику файл. Працює, навіть якщо курсор у текстовому полі,
     // бо файл у таке поле вставити неможливо. Звичайний текст вставляється як завжди. Вставку приймає лише перше файлове поле.
     if (first) {

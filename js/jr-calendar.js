@@ -8,9 +8,10 @@
   const $ = (s) => document.querySelector(s);
 
   const CAL_KEY = "journal.cal.v1", ALERT_KEY = "journal.alerts.v1", SEEN_KEY = "journal.alerts.seen.v1";
-  const DEFAULT_CAL = { impacts: ["high", "medium"], currencies: ["USD"], period: "week", showPast: false, tz: "local" };
+  const DEFAULT_CAL = { impacts: ["high", "medium"], currencies: ["USD", "GBP"], period: "week", showPast: false, tz: "local" };
+  const ALWAYS_CUR = ["USD", "GBP"];      // ці валюти є у фільтрі завжди, навіть коли подій по них ще немає
   const DEFAULT_ALERTS = { on: false, lead: 15, level: "high" };
-  const SOURCE_LABEL = { faireconomy: "Forex Factory (неофіційний фід)", demo: "демо-календар", static: "ручний список", none: "немає даних" };
+  const SOURCE_LABEL = { faireconomy: "Forex Factory (неофіційний фід)", static: "ручний список", none: "немає даних" };
   const PAST_GRACE_MIN = 30; // скільки хвилин після виходу подія ще лишається в списку
 
   function read(key, dflt) {
@@ -20,11 +21,18 @@
   function write(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* без збереження теж ок */ } }
 
   let data = null;       // вигляд календаря (як відповідь /api/calendar на сайті)
-  let hint = "";         // пояснення, чому показано демо
+  let hint = "";         // пояснення, чому подій ще немає
   let loadError = null;
-  let cal = { ...DEFAULT_CAL, ...read(CAL_KEY, {}) };
+  const storedCal = read(CAL_KEY, null);
+  let cal = { ...DEFAULT_CAL, ...(storedCal || {}), ...(storedCal ? {} : { gbp: true }) };      // gbp: фунт уже враховано (див. нижче)
   if (!Array.isArray(cal.impacts)) cal.impacts = DEFAULT_CAL.impacts;
   if (!Array.isArray(cal.currencies)) cal.currencies = DEFAULT_CAL.currencies;
+  // Один раз додаємо фунт (GBP) до вже збережених налаштувань. Порожній вибір означає «усі валюти», його не чіпаємо.
+  if (!cal.gbp) {
+    if (cal.currencies.length && !cal.currencies.includes("GBP")) cal.currencies = [...cal.currencies, "GBP"];
+    cal.gbp = true;
+    write(CAL_KEY, cal);
+  }
   let alerts = { ...DEFAULT_ALERTS, ...read(ALERT_KEY, {}) };
   let filtersBuilt = false;
   let curSig = "[]";
@@ -92,8 +100,8 @@
   const toggle = (arr, v, on) => (on ? [...new Set([...arr, v])] : arr.filter((x) => x !== v));
 
   function currencyBlock() {
-    const list = data && data.currencies && data.currencies.length ? data.currencies : cal.currencies;
-    const ordered = [...new Set([...list])].sort((a, b) => (a === "USD" ? -1 : b === "USD" ? 1 : a.localeCompare(b)));
+    const list = [...ALWAYS_CUR, ...((data && data.currencies) || []), ...cal.currencies];
+    const ordered = [...new Set(list)].sort((a, b) => (a === "USD" ? -1 : b === "USD" ? 1 : a.localeCompare(b)));
     return el("div", { class: "field", id: "cal-cur" },
       el("span", { class: "lbl", text: "Валюта" }),
       ordered.length
@@ -103,7 +111,7 @@
         : el("p", { class: "none", text: "Список з'явиться після завантаження." }),
       el("small", { id: "cal-cur-note", text: curNoteText() }));
   }
-  const curNoteText = () => (cal.currencies.length ? "Для криптовалют найважливіші події США (USD)."
+  const curNoteText = () => (cal.currencies.length ? "Для криптовалют найважливіші події США (USD); для пар із фунтом (GBP/USD, GBP/JPY) додай GBP."
                                                     : "Нічого не вибрано: показую всі валюти.");
   const curSignature = () => JSON.stringify((data && data.currencies) || []);
 
@@ -197,8 +205,8 @@
         e.name_uk !== e.title ? el("span", { class: "ev-orig", text: e.title }) : null,
         isNext ? el("span", { class: "ev-flag", text: "Найближча важлива" }) : null),
       el("span", { class: "ev-nums" },
-        e.forecast && e.forecast !== "демо" ? el("span", null, el("small", { text: "Прогноз" }), el("b", { text: e.forecast })) : null,
-        e.previous && e.previous !== "демо" ? el("span", null, el("small", { text: "Попереднє" }), el("b", { text: e.previous })) : null),
+        e.forecast ? el("span", null, el("small", { text: "Прогноз" }), el("b", { text: e.forecast })) : null,
+        e.previous ? el("span", null, el("small", { text: "Попереднє" }), el("b", { text: e.previous })) : null),
       el("span", { class: "ev-when", "data-ts": String(e.ts), text: whenText(mins) }));
     return el("li", { class: `ev ev-${e.impact}` + (past ? " is-past" : "") + (isNext ? " is-next" : "") }, row, more);
   }
@@ -226,10 +234,16 @@
     meta.textContent = `Джерело: ${src}.` + (upd ? ` Оновлено о ${upd}${cal.tz === "utc" ? " UTC" : ""}.` : "");
     if (data.error && !data.events.length) statusBox("error", `Календар недоступний: ${data.error} Спробуємо ще раз за кілька хвилин.`);
     else if (data.stale) statusBox("info", `Не вдалося оновити календар (${data.error}). Показано останні відомі дані.`);
-    else if (data.source === "demo") statusBox("info", hint || "Це демо-календар: події вигадані, щоб можна було переглянути інтерфейс.");
+    else if (hint) statusBox("info", hint);
     else statusBox(null, "");
 
     const evs = visibleEvents();
+    if (!data.events.length) {
+      root.append(el("div", { class: "panel empty" },
+        el("h2", { text: "Подій ще немає" }),
+        el("p", { text: "Календар заповниться після першого оновлення даних. Це робить GitHub Actions раз на ~30 хвилин (README, розділ «Календар новин»)." })));
+      return;
+    }
     if (!evs.length) {
       root.append(el("div", { class: "panel empty" },
         el("h2", { text: "За цими фільтрами подій немає" }),
@@ -338,14 +352,9 @@
     const now = Date.now();
     try {
       const r = await JL.news.load(null, now);
-      let snap = r.snap;
-      hint = "";
-      if (r.missing) {
-        // файлу ще немає (або він порожній): показуємо вигадані події, щоб можна було оцінити вкладку
-        snap = { events: JL.news.demoEvents(now), fetched_at: now, source: "demo", error: null, stale: false };
-        hint = "Живих даних календаря ще немає, тому показано вигадані події. Автооновлення вмикається один раз (README, розділ «Календар новин»).";
-      }
-      data = JL.news.view(snap, now, 14, 24);
+      // файлу ще немає (або він порожній): подій не показуємо, лише пояснюємо, як увімкнути оновлення
+      hint = r.missing ? "Даних календаря ще немає. Автооновлення вмикається один раз (README, розділ «Календар новин»)." : "";
+      data = JL.news.view(r.snap, now, 14, 24);
       loadError = null;
     } catch (err) {
       if (!data) loadError = "Не вдалося прочитати календар. Онови сторінку.";

@@ -13,6 +13,7 @@
 - `js/jr-entries.js`, `js/jr-review.js`: файли беруться з `m.url` (blob-адреса), а не `/api/journal/media/<id>`.
 - `js/journal.js`: без входу/сайтової навігації, експорт CSV будується в браузері, підказка про резервну копію, оновлення екрана після змін із хмари.
 - `js/jr-account.js` (новий): вікно «Дані й хмара».
+- `js/jr-calendar.js` + `lib/jl-news.js` (нові): вкладка «Календар новин», порт `static/calendar.js` і `app/news/*` сайту (див. нижче).
 - `index.html`, `manifest.webmanifest`, `sw.js`: власні, шляхи відносні (працює в підпапці GitHub Pages).
 
 ## Модулі `lib/` (порядок підключення в `index.html` важливий)
@@ -67,11 +68,38 @@
 
 Що **не** перевірялося: реальні виклики Firebase (немає доступу до мережі Google при розробці). Перевірено все до межі `adapter()`. Якщо при першому реальному запуску щось не так, дивись текст помилки в «Дані й хмара»: `MSG` у `jl-firebase.js` перекладає коди помилок Firebase.
 
+## Календар новин
+
+- Дані: `data/news.json` = `{fetched_at, source, events: [сирі записи faireconomy]}`. Його пише `scripts/fetch-news.js` у GitHub Actions
+  (`.github/workflows/pages.yml`, копія в `scripts/news-workflow.yml`): розклад `7,37 * * * *`, потім збирається `_site` без `tests/`, `scripts/`, `*.md` і викладається через `deploy-pages` (Pages Source = GitHub Actions).
+  При збої джерела скрипт бере попередній `news.json` із вже опублікованого сайту (`PREV_URL`) і не валить запуск (лише `::warning::`).
+- Браузер читає файл через `JL.news.load` (`cache: "no-store"`; сервіс-воркер працює network-first, тому офлайн лишаються останні дані). Розбір сирих записів
+  (`parseFaireconomy`), `describe` (глосарій назв і підказок), ідентифікатор події (SHA-1) і `view` портовані з Python і звірені в `parity.test.js`
+  (порядок за повним часом разом із дробовими секундами, як у Python).
+- Немає файлу або він порожній: `load` повертає `missing`, і вкладка показує порожній стан із підказкою (без вигаданих подій). Застаріле (> 6 год) і пошкоджене розрізняються повідомленнями.
+- `jr-calendar.js`: стан у localStorage (`journal.cal.v1`, `journal.alerts.v1`, `journal.alerts.seen.v1`); маршрути `#journal` (типово) і `#calendar`: перемикається `hidden` на `#jr-shell` і `#calendar-view`.
+- Тести: `tests/fetch_news.test.js` (скрипт на локальному сервері), `tests/e2e_calendar.py` (підміна `data/news.json` через `route`; сервіс-воркер у тих тестах заблоковано, бо він обходить `route`).
+- Джерело неофіційне; якщо воно зникне, достатньо змінити `FEED_URLS` у скрипті й `parseFaireconomy` (формат записів: title, country, date, impact, forecast, previous).
+
+## Відмінності від сайту, додані пізніше (окремі від паритету)
+
+- **`JL.defaultFields` не чіпати**: його звіряє `parity.test.js` із Python-кодом сайту. Усе власне накладається в `lib/jl-schema.js` у `JL.appDefaultFields` (нові журнали):
+  чотири питання розбору (`by_rules`, `tp_after_stop`, `re_enter`, `re_enter_why`) за замовчуванням `hidden` (не у формі запису, але є в розборі місяця), а «Ключові помилки» мають нові назви (`JL.PRO_MISTAKES`, до 40 символів).
+- **Міграція старих журналів**: `JL.migrateJournals()` (`lib/jl-api.js`), викликається при старті й після приходу даних з хмари. Позначка `schema_v` лежить у самому записі журналу (синхронізується). v2 ховає ті чотири питання й перейменовує помилки в списку та в збережених записах (`JL.MISTAKE_RENAMES`). Запускається один раз на журнал, тому поле, повернуте користувачем у форму, знову не ховається. Нова зміна схеми: підняти `JL.SCHEMA_V` і додати крок у міграцію.
+- **Налаштування «Розбору місяця»** (`lib/jl-review.js`, `js/jr-review-cfg.js`, `js/jr-review.js`): конфіг `journal.review_cfg` = `{blocks, metrics, month_fields, pos_fields}`, API `GET|PUT /journals/:id/review-config`. `JL.reviewCfg.normalize` доповнює збережене відсутніми готовими елементами (нові готові статистики з'являються самі), `clean` суворо перевіряє те, що прийшло з інтерфейсу.
+  Значення полів висновку лежать у `reviews.data[key]` (ключі власних полів `m_xxxxxxxx`), питання по угоді це звичайні поля журналу (нові створюються при збереженні через `PUT /fields`), відповіді пишуться в сам запис.
+- **Формули** (`lib/jl-formula.js`): власний розбір і обчислення без `eval`/`new Function` (CSP). Змінні = ключі `summary` зі статистики місяця (`JL.formula.VARS`), підсумки по полях `sum/avg/min/max/count/countif([Назва поля])` рахує `JL.reviewCfg.makeFieldAgg` із закритих угод місяця. Порожнє значення й ділення на нуль дають `null` («—»). Тести: `tests/review_cfg.test.js`.
+- **Згортання бічної панелі**: клас `is-side-collapsed` на `#jr-shell`, вибір у `localStorage` (`journal.side.collapsed.v1`), діє лише від 921px.
+- **Календар**: у фільтрі валют завжди є USD і GBP (`ALWAYS_CUR` у `jr-calendar.js`); фунт один раз додається до вже збережених налаштувань (позначка `gbp` у `journal.cal.v1`).
+- Тести: `tests/e2e_review.py` (розбір, редактор, міграція, панель, вставка, прокрутка таблиці), `tests/review_cfg.test.js`.
+
 ## Тести (`python3 tests/run_all.py`)
 
 1. `tests/parity.test.js` (Node 18+, ~3000 звірок): ті самі входи через JS і через Python-код сайту, відповіді мають збігатися точно. Еталони в `tests/fixtures/parity.json.gz`, їх генерує `tests/gen_fixtures.py` проти коду сайту: `python3 tests/gen_fixtures.py /шлях/до/backend` (потрібен лише якщо змінилась логіка на сайті).
 2. `tests/e2e_core.py` (Playwright + Chromium): інтерфейс, локальний API, файли, імпорт CSV/ZIP, експорт, резервні копії, робота без інтернету, відсутність помилок консолі й порушень CSP.
 3. `tests/e2e_sync.py`: синхронізація на імітованій хмарі між кількома «пристроями» (окремі профілі браузера): передача, конфлікти, видалення, черга після перезавантаження, злиття при першому вході, інший акаунт, стиснення фото, сторінки.
+
+4. `tests/fetch_news.test.js` і `tests/e2e_calendar.py`: див. розділ «Календар новин».
 
 Підготовка: `pip install playwright && playwright install chromium`. Тести самі піднімають `python3 -m http.server`.
 

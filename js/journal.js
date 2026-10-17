@@ -5,7 +5,7 @@
   const JR = window.JR;
   const { el, state } = JR;
   const $ = (s, r) => (r || document).querySelector(s);
-  const LAST_KEY = "journal.last.v1", TAB_KEY = "journal.tab.v1";
+  const LAST_KEY = "journal.last.v1", TAB_KEY = "journal.tab.v1", SIDE_KEY = "journal.side.collapsed.v1";
   const TABS = [["entries", "Записи"], ["review", "Розбір місяця"], ["stats", "Статистика"]];
   let tab = "entries";
   let starting = false;
@@ -62,6 +62,7 @@
   async function boot() {
     try {
       await window.JL.db.open();
+      try { await window.JL.migrateJournals(); } catch (e) { /* міграція не критична: журнал працює й без неї */ }
       await Promise.all([JR.loadMeta(), JR.loadJournals()]);
     } catch (e) {
       gate("Не вдалося відкрити сховище", e.message || "Браузер не дозволяє зберігати дані. Вимкни приватний режим або дозволь сховище для цього сайту.");
@@ -92,6 +93,22 @@
   }
 
   // ---------------------------------------------------------------- бічна панель
+  /* Згортання панелі журналів на комп'ютері. Вибір зберігається в браузері (localStorage) і діє після перезавантаження сторінки чи застосунку.
+     На вузьких екранах панель і так ховається за кнопкою «Журнали», тому там згортання не діє (див. media-запит у journal.css). */
+  const sideCollapsed = () => lsGet(SIDE_KEY) === "1";
+  function applySideCollapsed() {
+    const on = sideCollapsed();
+    $("#jr-shell").classList.toggle("is-side-collapsed", on);
+    const b = $("#jr-side-collapse");
+    if (b) {
+      b.setAttribute("aria-expanded", String(!on));
+      b.setAttribute("aria-label", on ? "Розгорнути панель журналів" : "Згорнути панель журналів");
+      b.title = on ? "Розгорнути панель журналів" : "Згорнути панель журналів";
+      b.textContent = on ? "»" : "«";
+    }
+  }
+  function toggleSideCollapsed() { lsSet(SIDE_KEY, sideCollapsed() ? "0" : "1"); applySideCollapsed(); }
+
   function toggleSide() {
     const open = document.body.classList.toggle("jr-side-open");
     const b = $("#jr-side-toggle"); if (b) b.setAttribute("aria-expanded", String(open));
@@ -115,8 +132,12 @@
       el("span", { class: "jr-dim", text: `Файли: ${JR.fmt.bytes(used)} з ${lim.quota_mb} МБ` }),
       el("progress", { max: "100", value: String(pct), "aria-label": "Зайняте місце для файлів" }));
     const syncLine = el("p", { class: "jr-dim jr-sync-line", id: "jr-sync-line", role: "status", text: JR.account.statusText() });
-    side().replaceChildren(...blocks, meter, backupHint(), syncLine,
+    const top = el("div", { class: "jr-side-top" },
+      el("span", { class: "jr-side-title", text: "Журнали" }),
+      el("button", { type: "button", class: "jr-side-collapse", id: "jr-side-collapse", "aria-controls": "jr-side", onclick: toggleSideCollapsed }));
+    side().replaceChildren(top, ...blocks, meter, backupHint(), syncLine,
       ...(isIOS() && !isStandalone() ? [el("p", { class: "jr-note jr-ios-hint", text: "Щоб встановити на iPhone: натисни «Поділитися» і «На початковий екран»." })] : []));
+    applySideCollapsed();
   }
 
   function renderEmpty() {
@@ -257,6 +278,7 @@
   async function onRemote() {
     clearTimeout(remoteTimer);
     if (document.querySelector("dialog[open].jr-dialog")) { remoteTimer = setTimeout(onRemote, 2500); return; }
+    try { await window.JL.migrateJournals(); } catch (e) { /* ок */ }
     await Promise.all([JR.loadMeta(), JR.loadJournals()]);
     if (!state.journals.length) { state.current = null; renderSide(); renderEmpty(); return; }
     if (!JR.currentJournal()) { await select(state.journals[0].id); return; }
@@ -271,6 +293,7 @@
   JR.account.onHint = async () => { await loadBackupAge(); if (state.meta) renderSide(); };
 
   document.getElementById("acc-btn").addEventListener("click", () => JR.account.open());
+  applySideCollapsed();                        // згорнута панель з'являється одразу згорнутою, без блимання
   initTheme();
   initInstall();
   start().then(async () => {

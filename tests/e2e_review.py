@@ -1,5 +1,5 @@
 """Браузерні перевірки правок: налаштовуваний «Розбір місяця» (блоки, статистика з формулами, поля, питання по угоді), нові назви
-помилок і сховані питання розбору, міграція старих журналів, Winrate, згортання бічної панелі, кнопка «Вставити», прокрутка таблиці."""
+помилок і сховані питання розбору, міграція старих журналів, Winrate, згортання бічної панелі, кнопка «Вставити», перегляд фото на весь екран, прокрутка таблиці."""
 import json
 from e2e_lib import *
 
@@ -376,6 +376,91 @@ def t_paste_button(env):
     ctx.close()
 
 
+def t_viewer_fullscreen(env):
+    """Фото (і ще не збережені, вставлені зі скріншота) відкриваються на весь екран зі зумом і гортанням."""
+    ctx = env.browser.new_context(viewport={"width": 1280, "height": 800}, permissions=["clipboard-read", "clipboard-write"])
+    pg = env.page(ctx)
+    jid = mk_journal(pg)
+    select_journal(pg, jid)
+    pg.click("#jr-new"); pg.wait_for_selector("#jr-paste-media")
+    pg.evaluate("""async () => { const b = await __t.png(1600, 1000, false); await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); }""")
+    pg.click("#jr-paste-media")
+    pg.wait_for_selector(".jr-thumb.is-pending")
+    # незбережене фото відкривається
+    pg.click(".jr-thumb.is-pending .jr-thumb-open")
+    pg.wait_for_selector("dialog.is-lightbox[open] .jr-vw-stage img")
+    box = pg.locator("dialog.is-lightbox").bounding_box()
+    eq((round(box["x"]), round(box["y"]), round(box["width"]), round(box["height"])), (0, 0, 1280, 800), "перегляд займає весь екран")
+    img = pg.locator(".jr-vw-stage img").bounding_box()
+    ok(img["width"] > 900 and img["width"] <= 1280 and img["height"] <= 800 - 40, f"фото вписане в екран: {img}")
+    ok(pg.locator("dialog.is-lightbox .jr-vw-note").inner_text() == "ще не збережено", "позначка, що фото ще не збережене")
+    eq(pg.locator("dialog[open]").count(), 2, "форма запису лишилась під переглядом")
+    ok(pg.locator("#jr-vw-prev").count() == 0, "одне фото: стрілок гортання немає")
+    lvl = lambda: pg.locator(".jr-vw-level").inner_text()
+    tr = lambda: pg.evaluate("document.querySelector('.jr-vw-stage img').style.transform")
+    eq(lvl(), "75%", "масштаб по екрану (1000 px заввишки у вікні 745 px)")
+    # кнопки масштабу
+    pg.click('button[aria-label^="Збільшити"]')
+    ok(tr() != "" and int(lvl()[:-1]) > 100, f"кнопка + збільшує: {lvl()}")
+    pg.click('button[aria-label^="Справжній розмір"]')
+    eq(lvl(), "100%", "«1:1» показує справжній розмір")
+    pg.click('button[aria-label^="Справжній розмір"]')
+    eq((lvl(), tr()), ("75%", ""), "повторне «1:1» повертає за розміром екрана")
+    # коліщатко
+    pg.mouse.move(640, 450); pg.mouse.wheel(0, -400); pg.wait_for_timeout(100)
+    ok(tr() != "" and int(lvl()[:-1]) > 75, f"коліщатко збільшує: {lvl()}")
+    # перетягування пересуває (у межах фото)
+    t0 = tr()
+    pg.mouse.move(640, 450); pg.mouse.down(); pg.mouse.move(540, 400, steps=5); pg.mouse.up()
+    ok(tr() != t0, "перетягування пересуває збільшене фото")
+    # подвійний клік: повертає за розміром екрана і навпаки
+    pg.mouse.dblclick(640, 450)
+    eq((lvl(), tr()), ("75%", ""), "подвійний клік скидає масштаб")
+    pg.mouse.dblclick(640, 450)
+    ok(int(lvl()[:-1]) > 150, f"подвійний клік наближає: {lvl()}")
+    pg.keyboard.press("0")
+    eq(lvl(), "75%", "клавіша 0 вміщує фото в екран")
+    # Esc закриває лише перегляд, форма лишається з фото
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(150)
+    eq(pg.locator("dialog[open]").count(), 1, "Esc закрив перегляд, форма на місці")
+    eq(pg.locator(".jr-thumb.is-pending").count(), 1, "вставлене фото досі в формі")
+    # Ctrl+V під час перегляду не додає файлів
+    pg.click(".jr-thumb.is-pending .jr-thumb-open")
+    pg.wait_for_selector("dialog.is-lightbox[open]")
+    pg.click("#jr-vw-close"); pg.wait_for_timeout(150)
+    eq(pg.locator("dialog.is-lightbox").count(), 0, "кнопка × закриває перегляд")
+    # зберегти, відкрити збережений запис, додати ще одне фото: гортання між збереженим і незбереженим
+    pg.fill("#jr-f-symbol", "ETHUSDT")
+    pg.click("dialog[open] button[type=submit]")
+    pg.wait_for_selector("#jr-list tr.jr-row", timeout=5000)
+    pg.click(".jr-row"); pg.wait_for_selector("#jr-paste-media")
+    pg.evaluate("""async () => { const b = await __t.png(300, 200, false); await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); }""")
+    pg.click("#jr-paste-media"); pg.wait_for_selector(".jr-thumb.is-pending")
+    pg.locator(".jr-thumb:not(.is-pending) .jr-thumb-open").click()
+    pg.wait_for_selector("dialog.is-lightbox[open] .jr-vw-stage img")
+    eq(pg.locator(".jr-vw-count").inner_text(), "1 / 2", "у перегляді два фото")
+    ok(pg.locator(".jr-vw-note").is_hidden(), "збережене фото без позначки")
+    pg.click("#jr-vw-next"); pg.wait_for_timeout(100)
+    eq((pg.locator(".jr-vw-count").inner_text(), pg.locator(".jr-vw-note").inner_text()), ("2 / 2", "ще не збережено"), "стрілка → показує незбережене фото")
+    pg.keyboard.press("ArrowLeft")
+    eq(pg.locator(".jr-vw-count").inner_text(), "1 / 2", "клавіша ← гортає назад")
+    # клік по порожньому темному полю закриває перегляд (фото вписане, поле з боків вільне)
+    pg.mouse.click(8, 400); pg.wait_for_timeout(150)
+    eq(pg.locator("dialog.is-lightbox").count(), 0, "клік по темному полю закриває перегляд")
+    no_errors(pg)
+    # телефон: перегляд теж на весь екран, панель інструментів не виходить за край
+    pg.set_viewport_size({"width": 390, "height": 760}); pg.wait_for_timeout(200)
+    pg.locator(".jr-thumb:not(.is-pending) .jr-thumb-open").click()
+    pg.wait_for_selector("dialog.is-lightbox[open] .jr-vw-stage img")
+    box = pg.locator("dialog.is-lightbox").bounding_box()
+    eq((round(box["width"]), round(box["height"])), (390, 760), "на телефоні перегляд на весь екран")
+    over = pg.evaluate("[...document.querySelectorAll('dialog.is-lightbox .jr-vw-bar button, dialog.is-lightbox .jr-vw-bar a')].filter(b => { const r = b.getBoundingClientRect(); return r.right > 391 || r.left < -1; }).length")
+    eq(over, 0, "кнопки перегляду вміщуються в ширину телефона")
+    ok(pg.locator("#jr-vw-close").is_visible(), "кнопка закриття видима")
+    no_errors(pg)
+    ctx.close()
+
+
 def t_table_scroll_buttons(env):
     pg = env.page(width=1000, height=800)
     jid = mk_journal(pg)
@@ -407,7 +492,7 @@ def t_table_scroll_buttons(env):
 
 TESTS = [("new_journal_defaults", t_new_journal_defaults), ("migration", t_migration), ("review_default_look", t_review_default_look),
          ("review_config_ui", t_review_config_ui), ("review_config_api", t_review_config_api), ("stats_winrate", t_stats_winrate),
-         ("sidebar_collapse", t_sidebar_collapse), ("paste_button", t_paste_button), ("table_scroll_buttons", t_table_scroll_buttons)]
+         ("sidebar_collapse", t_sidebar_collapse), ("paste_button", t_paste_button), ("viewer_fullscreen", t_viewer_fullscreen), ("table_scroll_buttons", t_table_scroll_buttons)]
 
 if __name__ == "__main__":
     import sys

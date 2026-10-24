@@ -26,6 +26,7 @@
 | `jl-import.js` | розпізнавання колонок, CSV, Notion ZIP, `Converter` | `journal_import.py` |
 | `jl-db.js` | IndexedDB `journal-app-v1`: `tx(stores, mode, fn)`, `nextId`, `meta` | `journal.py` (SQLite) |
 | `jl-api.js` | маршрутизатор, ті самі маршрути, що `journal_api.py` | `journal_api.py`, `JournalStore` |
+| `jl-backtest.js` | бектести: `JL.bt` (`cleanCol`, `cleanTrade`, `order`, `compute`), чисті функції без бази | немає |
 | `jl-backup.js` | резервна копія ZIP: `backupCreate`, `backupRestore` | немає |
 | `jl-sync.js` | черга, синхронізація, злиття | немає |
 | `jl-firebase.js` | Firebase Auth + Firestore (`JL.cloud`) | немає |
@@ -34,13 +35,15 @@
 Логіка статистики й перевірок порівнюється з Python-кодом сайту побіжно. Тому в JS є `pyRound` (банківське округлення), `pySum`,
 `pyFloat`. Не заміняй їх на `Math.round`/`reduce`/`Number()`: це дасть розбіжності в останніх знаках, які тест `parity.test.js` одразу покаже.
 
-## Модель даних (IndexedDB `journal-app-v1`)
+## Модель даних (IndexedDB `journal-app-v1`, версія 2)
 
 - `journals` (ключ `id`): `{id, name, market, currency, fields[], created_at, _u}`
 - `entries` (ключ `id`, індекс `journal_id`): `{id, journal_id, data{}, opened, created_at, updated_at, _u}`
 - `reviews` (ключ `key` = `"<jid>|<РРРР-ММ>"`): `{key, journal_id, month, data{}, updated_at, _u}`
 - `media` (ключ `id`, індекс `entry_id`): `{id, entry_id, journal_id, field, name, mime, size, created_at, _u}`
 - `blobs` (ключ = `media.id`): сам файл (Blob)
+- `bt_cols` (ключ `id`): колекція бектесту `{id, name, note, risk_pct|null, created_at, _u}`
+- `bt_trades` (ключ `id`, індекс `col_id`): угода бектесту `{id, col_id, date|"", symbol, direction, setup, r, note, created_at, _u}`; `r` це результат у R
 - `outbox` (ключ `"<kind>/<id>"`): `{key, kind, id, op: "put"|"del", ts}`: що ще не відправлено в хмару
 - `meta`: `cloudUid`, `cursor`, `lastSync`, `lastBackup`
 
@@ -53,7 +56,7 @@
 ## Синхронізація (`lib/jl-sync.js`)
 
 Хмара підключається через об'єкт `JL.cloud` (`user()`, `onUser(fn)`, `adapter()`), `adapter()` дає `{push(docs), pull(cursor, limit)}`.
-Формат документа: `{kind, rid, deleted, u, data: JSON-рядок|null, blob: base64|null}`, `kind` один із `journals|entries|reviews|media`.
+Формат документа: `{kind, rid, deleted, u, data: JSON-рядок|null, blob: base64|null}`, `kind` один із `journals|entries|reviews|media|bt_cols|bt_trades`.
 
 `run()`: 1) `pull`: сторінками за курсором, кожен документ іде в `applyRemote` за правилами пізніше-перемагає (також для видалень: «надгробки»);
 2) `push`: пакети з `outbox` (до 100 документів чи 5 МБ), фото стискаються до 640 КБ (`shrink`), відео не відправляються; після успіху запис із `outbox` видаляється, лише якщо його не змінили за цей час.
@@ -91,7 +94,12 @@
 - **Формули** (`lib/jl-formula.js`): власний розбір і обчислення без `eval`/`new Function` (CSP). Змінні = ключі `summary` зі статистики місяця (`JL.formula.VARS`), підсумки по полях `sum/avg/min/max/count/countif([Назва поля])` рахує `JL.reviewCfg.makeFieldAgg` із закритих угод місяця. Порожнє значення й ділення на нуль дають `null` («—»). Тести: `tests/review_cfg.test.js`.
 - **Згортання бічної панелі**: клас `is-side-collapsed` на `#jr-shell`, вибір у `localStorage` (`journal.side.collapsed.v1`), діє лише від 921px.
 - **Календар**: у фільтрі валют завжди є USD і GBP (`ALWAYS_CUR` у `jr-calendar.js`); фунт один раз додається до вже збережених налаштувань (позначка `gbp` у `journal.cal.v1`).
-- Тести: `tests/e2e_review.py` (розбір, редактор, міграція, панель, вставка, прокрутка таблиці), `tests/review_cfg.test.js`.
+- **Перегляд фото на весь екран** (`E.lightbox` у `js/jr-entries.js`): діалог на весь екран зі зумом (коліщатко, кнопки, щипок, «1:1»), пересуванням, гортанням; приймає й ще не збережені файли (адреси `blob:`).
+- **Бектести** (розділ `#backtest`): `lib/jl-backtest.js` (перевірка й статистика), маршрути `/backtests*` та `/backtest-trades/:id` у `lib/jl-api.js`, інтерфейс `js/jr-backtest.js`.
+  Колекція це окремий бектест, угода має мінімум полів (дата, інструмент, напрямок, сетап, результат у R, нотатка). Порядок угод: за датою, якщо дата є в усіх, інакше за порядком додавання. Беззбиток: до ±0,05 R, як у журналі.
+  Версію бази піднято до 2 (`jl-db.js`): `onupgradeneeded` створює лише відсутні сховища й скидає курсор хмари, щоб підтягнути нові види записів з інших пристроїв. Синхронізація, резервна копія й `clearAll` знають про `bt_cols` і `bt_trades` (у копіях без цих масивів відновлення працює як раніше).
+  Нові види записів у синхронізації: додати в `STORE` і `ALL` у `jl-sync.js`, у `removeLocal`, у `jl-backup.js`.
+- Тести: `tests/e2e_review.py` (розбір, редактор, міграція, панель, вставка, перегляд фото, прокрутка таблиці), `tests/review_cfg.test.js`, `tests/backtest.test.js` і `tests/e2e_backtest.py` (бектести: база, API, інтерфейс, телефон, копія, хмара).
 
 ## Тести (`python3 tests/run_all.py`)
 

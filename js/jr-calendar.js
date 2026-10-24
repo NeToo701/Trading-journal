@@ -70,16 +70,21 @@
 
   // ---------------------------------------------------------------- маршрутизація
   function route() {
-    const view = location.hash === "#calendar" ? "calendar" : "journal";
-    const changed = document.body.dataset.view !== view;
+    const view = location.hash === "#calendar" ? "calendar" : location.hash === "#backtest" ? "backtest" : "journal";
+    const prev = document.body.dataset.view;
+    const changed = prev !== view;
     document.body.dataset.view = view;
     $("#calendar-view").hidden = view !== "calendar";
     $("#jr-shell").hidden = view !== "journal";
-    for (const [id, v] of [["#tab-journal", "journal"], ["#tab-calendar", "calendar"]]) {
+    $("#bt-shell").hidden = view !== "backtest";
+    // Висувна панель на телефоні не переходить між журналом і бектестами. Лише порожній журнал показує її відкритою (див. renderEmpty).
+    if (changed && (view === "backtest" || prev === "backtest")) document.body.classList.toggle("jr-side-open", view === "journal" && !window.JR.state.journals.length);
+    for (const [id, v] of [["#tab-journal", "journal"], ["#tab-calendar", "calendar"], ["#tab-backtest", "backtest"]]) {
       const a = $(id);
       if (v === view) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     }
     if (view === "calendar") renderAll();
+    if (view === "backtest" && window.JR.backtest) window.JR.backtest.show();
     if (changed) window.scrollTo(0, 0);
   }
 

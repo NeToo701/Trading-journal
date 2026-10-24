@@ -172,7 +172,7 @@
         const { name, blob, counts } = await JL.backupCreate();
         download(blob, name);
         await JL.db.meta.set(LAST_BACKUP, Date.now());
-        notice = `Копію збережено: ${counts.entries} записів, ${counts.media} файлів.`;
+        notice = `Копію збережено: ${counts.entries} записів, ${counts.media} файлів` + (counts.backtests ? `, колекцій бектесту ${counts.backtests} (угод ${counts.bt_trades})` : "") + ".";
         A.paintHint(); paint();
       } finally { make.textContent = "Зберегти копію (ZIP)"; }
     }));
@@ -185,7 +185,7 @@
       if (!ok) return;
       try {
         const r = await JL.backupRestore(f);
-        notice = `Відновлено: журналів ${r.journals}, записів ${r.entries}, розборів ${r.reviews}, файлів ${r.media}.`;
+        notice = `Відновлено: журналів ${r.journals}, записів ${r.entries}, розборів ${r.reviews}, файлів ${r.media}` + (r.backtests || r.bt_trades ? `, колекцій бектесту ${r.backtests}, угод бектесту ${r.bt_trades}` : "") + ".";
         JR.bus.dispatchEvent(new Event("imported")); paint();
       } catch (e) { showErr(err, e); }
     });

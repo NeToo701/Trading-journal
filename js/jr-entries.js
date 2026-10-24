@@ -224,8 +224,13 @@
     const grid = el("div", { class: "jr-thumbs" });
     const limits = state.meta.limits;
     const err = el("p", { class: "jr-note jr-warn", hidden: true });
+    let seq = 0;
+    // Усе, що можна гортати в перегляді: збережені файли поля і ті, що додані до запису, але ще не збережені
+    const viewItems = () => [
+      ...(entry ? entry.media.filter((x) => x.field === field.key) : []),
+      ...pending.filter((p) => p.field === field.key).map((p) => ({ id: p.vid, name: p.file.name, mime: p.type, url: p.url, size: p.file.size, note: "ще не збережено" }))];
     const paintThumb = (m) => {
-      const node = thumb(m, entry ? entry.media.filter((x) => x.field === field.key) : [m], {
+      const node = thumb(m, viewItems, {
         onDelete: async () => {
           const ok = await JR.confirm({ title: "Видалити файл?", text: m.name, ok: "Видалити", danger: true });
           if (!ok) return;
@@ -247,11 +252,14 @@
         if (existing.length + pending.length >= limits.media_per_entry) { bad.push(`не більше ${limits.media_per_entry} файлів до запису`); break; }
         const url = URL.createObjectURL(file);
         const status = el("span", { class: "jr-thumb-status", text: "Буде завантажено" });
-        const node = el("figure", { class: "jr-thumb is-pending" },
-          isVideo ? el("video", { src: url, muted: true, preload: "metadata", "aria-label": file.name }) : el("img", { src: url, alt: file.name }),
+        const vid = "pending-" + (++seq);
+        const view = el("button", { type: "button", class: "jr-thumb-open", "aria-label": `Відкрити ${file.name}`, onclick: () => E.lightbox(viewItems(), vid) },
+          isVideo ? el("video", { src: url, muted: true, preload: "metadata", "aria-hidden": "true" }) : el("img", { src: url, alt: file.name }),
+          isVideo ? el("span", { class: "jr-play", "aria-hidden": "true", text: "▶" }) : null);
+        const node = el("figure", { class: "jr-thumb is-pending" }, view,
           el("figcaption", null, el("span", { class: "jr-thumb-name", text: file.name }), status),
           el("button", { type: "button", class: "jr-thumb-x", "aria-label": `Прибрати ${file.name}`, text: "×", onclick: () => { pending.splice(pending.indexOf(item), 1); URL.revokeObjectURL(url); node.remove(); } }));
-        const item = { file, field: field.key, url, node, setStatus: (t, bad2) => { status.textContent = t; status.classList.toggle("is-bad", !!bad2); } };
+        const item = { file, field: field.key, url, node, vid, type, setStatus: (t, bad2) => { status.textContent = t; status.classList.toggle("is-bad", !!bad2); } };
         pending.push(item); grid.append(node);
       }
       if (bad.length) { err.textContent = bad.join("; ") + "."; err.hidden = false; }
@@ -293,6 +301,7 @@
     if (first) {
       const dlgPaste = (ev) => {
         if (!section.isConnected) { document.removeEventListener("paste", dlgPaste); return; }
+        if (document.querySelector(".jr-dialog.is-lightbox")) return;
         const files = pastedFiles(ev.clipboardData);
         if (!files.length) return;
         ev.preventDefault();
@@ -313,7 +322,7 @@
   function thumb(m, siblings, hooks) {
     const url = m.url;
     const isVideo = m.mime.startsWith("video/");
-    const open = el("button", { type: "button", class: "jr-thumb-open", "aria-label": `Відкрити ${m.name}`, onclick: () => E.lightbox(siblings, m.id) },
+    const open = el("button", { type: "button", class: "jr-thumb-open", "aria-label": `Відкрити ${m.name}`, onclick: () => E.lightbox(typeof siblings === "function" ? siblings() : siblings, m.id) },
       isVideo ? el("video", { src: url + "#t=0.1", preload: "metadata", muted: true, "aria-hidden": "true" }) : el("img", { src: url, alt: m.name, loading: "lazy" }),
       isVideo ? el("span", { class: "jr-play", "aria-hidden": "true", text: "▶" }) : null);
     return el("figure", { class: "jr-thumb" }, open,
@@ -321,30 +330,144 @@
       hooks && hooks.onDelete ? el("button", { type: "button", class: "jr-thumb-x", "aria-label": `Видалити ${m.name}`, text: "×", onclick: hooks.onDelete }) : null);
   }
 
-  // ---------------------------------------------------------------- перегляд
+  // ---------------------------------------------------------------- перегляд на весь екран
+  // Фото розкривається на все вікно: коліщатко або кнопки +/− змінюють масштаб, перетягування пересуває, подвійний клік
+  // наближає, «1:1» показує справжні пікселі скріншота. Працює і для ще незбережених файлів (адреса blob:).
   E.lightbox = function (items, startId) {
     let idx = Math.max(0, items.findIndex((m) => m.id === startId));
     return JR.modal((done, dlg) => {
-      const stage = el("div", { class: "jr-stage" });
-      const title = el("span", { class: "jr-lb-title" });
-      const count = el("span", { class: "jr-dim" });
-      const dl = el("a", { class: "jr-btn is-quiet", text: "Відкрити окремо", target: "_blank", rel: "noopener" });
-      const show = () => {
-        const m = items[idx], url = m.url;
-        stage.replaceChildren(m.mime.startsWith("video/") ? el("video", { src: url, controls: true, autoplay: true, playsinline: true }) : el("img", { src: url, alt: m.name }));
-        title.textContent = m.name; count.textContent = `${idx + 1} / ${items.length}`; dl.href = url;
+      let s = 1, tx = 0, ty = 0, node = null, pinch = null, moved = 0, downTarget = null, startX = 0, startY = 0;
+      const ptrs = new Map();
+      const stage = el("div", { class: "jr-vw-stage", tabindex: "-1", "data-autofocus": "1" });
+      const title = el("span", { class: "jr-vw-name" });
+      const note = el("span", { class: "jr-vw-note" });
+      const count = el("span", { class: "jr-vw-count" });
+      const level = el("span", { class: "jr-vw-level", "aria-live": "polite" });
+      const isImg = () => !!node && node.tagName === "IMG";
+      const fitK = () => (node && node.naturalWidth ? node.clientWidth / node.naturalWidth : 1);
+      const maxS = () => Math.min(24, Math.max(6, 4 / (fitK() || 1)));
+      const clamp = () => {
+        const mx = Math.max(0, (node.clientWidth * s - stage.clientWidth) / 2), my = Math.max(0, (node.clientHeight * s - stage.clientHeight) / 2);
+        tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
       };
-      const step = (d) => { idx = (idx + d + items.length) % items.length; show(); };
-      dlg.addEventListener("keydown", (ev) => { if (ev.key === "ArrowLeft") step(-1); if (ev.key === "ArrowRight") step(1); });
+      const apply = () => {
+        if (!isImg()) { level.textContent = ""; return; }
+        if (s <= 1.001) { s = 1; tx = 0; ty = 0; }
+        clamp();
+        node.style.transform = s === 1 ? "" : `translate(${tx}px, ${ty}px) scale(${s})`;
+        stage.classList.toggle("is-zoomed", s > 1);
+        level.textContent = node.naturalWidth ? `${Math.round(fitK() * s * 100)}%` : "";
+      };
+      // Масштабування навколо точки (px, py — від центру області перегляду)
+      const zoomTo = (ns, px = 0, py = 0) => {
+        if (!isImg()) return;
+        ns = Math.min(maxS(), Math.max(1, ns));
+        const k = ns / s;
+        tx = px - (px - tx) * k; ty = py - (py - ty) * k; s = ns;
+        apply();
+      };
+      const rel = (cx, cy) => { const r = stage.getBoundingClientRect(); return [cx - r.left - r.width / 2, cy - r.top - r.height / 2]; };
+      const actual = () => { const k = fitK(); return k > 0 && k < 1 ? 1 / k : 1; };
+      const toggleActual = () => { if (Math.abs(s - actual()) < 0.02 || actual() === 1) zoomTo(1); else zoomTo(actual()); };
+
+      const zoomBtns = [];
+      const tool = (cls, text, label, fn) => {
+        const b = el("button", { type: "button", class: "jr-vw-btn " + cls, title: label, "aria-label": label, text, onclick: fn });
+        zoomBtns.push(b);
+        return b;
+      };
+      const open = el("a", { class: "jr-vw-btn", title: "Відкрити в новій вкладці", "aria-label": "Відкрити в новій вкладці", target: "_blank", rel: "noopener", text: "↗" });
+      const fs = dlg.requestFullscreen ? el("button", { type: "button", class: "jr-vw-btn", id: "jr-vw-fs", title: "Повноекранний режим (F)", "aria-label": "Повноекранний режим", text: "⛶",
+        onclick: () => { try { (document.fullscreenElement ? document.exitFullscreen() : dlg.requestFullscreen()).catch(() => {}); } catch (e) { /* не підтримується */ } } }) : null;
+      const prev = el("button", { type: "button", class: "jr-vw-nav is-prev", id: "jr-vw-prev", "aria-label": "Попереднє", text: "‹", onclick: () => step(-1) });
+      const next = el("button", { type: "button", class: "jr-vw-nav is-next", id: "jr-vw-next", "aria-label": "Наступне", text: "›", onclick: () => step(1) });
+
+      const show = () => {
+        const m = items[idx], isV = m.mime.startsWith("video/");
+        s = 1; tx = 0; ty = 0; ptrs.clear(); pinch = null;
+        node = isV ? el("video", { src: m.url, controls: true, autoplay: true, playsinline: true }) : el("img", { src: m.url, alt: m.name, draggable: false });
+        if (!isV) node.addEventListener("load", apply);
+        stage.classList.remove("is-zoomed", "is-drag");
+        stage.classList.toggle("is-video", isV);
+        stage.replaceChildren(node);
+        zoomBtns.forEach((b) => { b.disabled = isV; });
+        title.textContent = m.name; note.textContent = m.note || ""; note.hidden = !m.note;
+        count.textContent = items.length > 1 ? `${idx + 1} / ${items.length}` : "";
+        open.href = m.url;
+        apply();
+      };
+      const step = (d) => { if (items.length > 1) { idx = (idx + d + items.length) % items.length; show(); } };
+
+      // Масштаб: коліщатко (і щипок на тачпаді)
+      stage.addEventListener("wheel", (ev) => {
+        if (!isImg()) return;
+        ev.preventDefault();
+        const dy = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY;
+        const [px, py] = rel(ev.clientX, ev.clientY);
+        zoomTo(s * Math.exp(-dy * (ev.ctrlKey ? 0.01 : 0.0015)), px, py);
+      }, { passive: false });
+      stage.addEventListener("dblclick", (ev) => {
+        if (!isImg()) return;
+        const [px, py] = rel(ev.clientX, ev.clientY);
+        if (s > 1.01) zoomTo(1); else zoomTo(Math.max(2.5, actual()), px, py);
+      });
+      // Пересування мишею/пальцем і щипок двома пальцями; свайп вбік гортає, клік по порожньому полю закриває
+      stage.addEventListener("pointerdown", (ev) => {
+        if (!isImg() || ev.button > 0) return;
+        downTarget = ev.target;
+        try { stage.setPointerCapture(ev.pointerId); } catch (e) { /* ігноруємо */ }
+        ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+        if (ptrs.size === 1) { moved = 0; startX = ev.clientX; startY = ev.clientY; }
+        if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, s }; }
+        if (s > 1) stage.classList.add("is-drag");
+      });
+      stage.addEventListener("pointermove", (ev) => {
+        const p = ptrs.get(ev.pointerId);
+        if (!p) return;
+        const dx = ev.clientX - p.x, dy = ev.clientY - p.y;
+        p.x = ev.clientX; p.y = ev.clientY; moved += Math.abs(dx) + Math.abs(dy);
+        if (ptrs.size === 2 && pinch) {
+          const [a, b] = [...ptrs.values()];
+          const [px, py] = rel((a.x + b.x) / 2, (a.y + b.y) / 2);
+          zoomTo(pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, px, py);
+        } else if (ptrs.size === 1 && s > 1) { tx += dx; ty += dy; apply(); }
+      });
+      const release = (ev) => {
+        if (!ptrs.has(ev.pointerId)) return;
+        ptrs.delete(ev.pointerId);
+        if (ptrs.size < 2) pinch = null;
+        if (ptrs.size) return;
+        stage.classList.remove("is-drag");
+        if (ev.type !== "pointerup") return;
+        if (moved < 6) { if (downTarget === stage && s === 1) done(null); }
+        else if (ev.pointerType !== "mouse" && s === 1 && Math.abs(ev.clientX - startX) > 60 && Math.abs(ev.clientY - startY) < 60) step(ev.clientX < startX ? 1 : -1);
+      };
+      stage.addEventListener("pointerup", release);
+      stage.addEventListener("pointercancel", release);
+
+      dlg.addEventListener("keydown", (ev) => {
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.key === "ArrowLeft") { ev.preventDefault(); step(-1); }
+        else if (ev.key === "ArrowRight") { ev.preventDefault(); step(1); }
+        else if (ev.key === "+" || ev.key === "=") zoomTo(s * 1.5);
+        else if (ev.key === "-" || ev.key === "_") zoomTo(s / 1.5);
+        else if (ev.key === "0") zoomTo(1);
+        else if (ev.key === "1") toggleActual();
+        else if (ev.code === "KeyF" && fs) fs.click();
+      });
+      const onResize = () => { if (!dlg.isConnected) { window.removeEventListener("resize", onResize); return; } apply(); };
+      window.addEventListener("resize", onResize);
+
+      const bar = el("div", { class: "jr-vw-bar" },
+        el("h2", { id: "jr-dlg-title", class: "jr-vw-h" }, title, note, count),
+        el("div", { class: "jr-vw-tools" },
+          tool("", "−", "Зменшити (−)", () => zoomTo(s / 1.5)), level, tool("", "+", "Збільшити (+)", () => zoomTo(s * 1.5)),
+          tool("is-text", "По екрану", "Вмістити в екран (0)", () => zoomTo(1)),
+          tool("is-text", "1:1", "Справжній розмір, один піксель до одного (1)", toggleActual),
+          fs, open),
+        el("button", { type: "button", class: "jr-vw-btn is-close", id: "jr-vw-close", title: "Закрити (Esc)", "aria-label": "Закрити", text: "×", onclick: () => done(null) }));
       show();
-      return el("div", { class: "jr-lb" },
-        el("div", { class: "jr-dlg-head" }, el("h2", { id: "jr-dlg-title", class: "jr-lb-h" }, title, count),
-          el("button", { type: "button", class: "jr-x", "aria-label": "Закрити", text: "×", onclick: () => done(null) })),
-        stage,
-        el("div", { class: "jr-actions" },
-          items.length > 1 ? el("button", { type: "button", class: "jr-btn", text: "← Назад", onclick: () => step(-1) }) : null,
-          el("span", { class: "jr-spacer" }), dl,
-          items.length > 1 ? el("button", { type: "button", class: "jr-btn", text: "Далі →", onclick: () => step(1) }) : null));
+      return el("div", { class: "jr-vw" }, bar, el("div", { class: "jr-vw-main" }, stage, items.length > 1 ? prev : null, items.length > 1 ? next : null));
     }, { cls: "is-lightbox" });
   };
 

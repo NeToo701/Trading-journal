@@ -470,3 +470,5 @@ circle.jr-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
   #bt-kpis .jr-kpi-v { font-size: 18px; }
   #bt-kpis .jr-kpi-h { font-size: 11.5px; }
 }
+.bt-shots { white-space: nowrap; }
+.bt-shot { min-height: 28px; padding: 0 8px; font-variant-numeric: tabular-nums; }

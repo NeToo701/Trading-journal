@@ -225,19 +225,21 @@
     const sort = el("select", { id: "bt-sort", "aria-label": "Порядок угод", onchange: (ev) => { newestFirst = ev.target.value === "new"; lsSet(SORT_KEY, newestFirst ? "new" : "asc"); renderMain(); } },
       el("option", { value: "new", text: "Спочатку нові", selected: newestFirst }), el("option", { value: "asc", text: "Спочатку старі", selected: !newestFirst }));
     const open = (t) => tradeForm(t);
-    const head = el("tr", null, ["№", "Дата", "Інструмент", "Напрямок", "Сетап", "Результат, R", "Нотатка"].map((h) => el("th", { scope: "col", text: h })));
+    const head = el("tr", null, ["№", "Дата", "Інструмент", "Напрямок", "Сетап", "Результат, R", "Скріншоти", "Нотатка"].map((h) => el("th", { scope: "col", text: h })));
     const body = el("tbody", { id: "bt-list" });
     const more = el("div", { class: "jr-more" });
     const paintRows = () => {
       body.replaceChildren(...rows.slice(0, shown).map((t) => {
         const tr = el("tr", { class: "jr-row", tabindex: "0", "data-id": String(t.id), role: "button", "aria-label": `Угода ${t.n}: ${sg(t.r, 3)} R. Відкрити для редагування`,
-          onclick: () => open(t), onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(t); } } },
+          onclick: () => open(t), onkeydown: (ev) => { if (ev.target === ev.currentTarget && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); open(t); } } },
           el("td", { "data-label": "№", class: "jr-num jr-dim", text: String(t.n) }),
           el("td", { "data-label": "Дата", class: "jr-num", text: t.date ? fmt.dateTime(t.date) : "—" }),
           el("td", { "data-label": "Інструмент", text: t.symbol || "—" }),
           el("td", { "data-label": "Напрямок" }, t.direction ? el("span", { class: "jr-pill " + (t.direction === "Лонг" ? "is-long" : "is-short"), text: t.direction }) : "—"),
           el("td", { "data-label": "Сетап", text: t.setup || "—" }),
           el("td", { "data-label": "Результат, R", class: "jr-num " + cls(t.r), text: sg(t.r, 3) }),
+          el("td", { "data-label": "Скріншоти", class: "bt-shots" }, t.shots ? el("button", { type: "button", class: "jr-btn is-quiet bt-shot", "aria-label": `Відкрити скріншоти угоди ${t.n}: ${t.shots}`, title: "Відкрити скріншоти", onclick: (ev) => { ev.stopPropagation(); showShots(t); } },
+            el("span", { "aria-hidden": "true", text: "📷" }), ` ${t.shots}`) : "—"),
           el("td", { "data-label": "Нотатка", class: "bt-note", title: t.note || null, text: t.note || "—" }));
         return tr;
       }));
@@ -249,8 +251,19 @@
       el("div", { class: "jr-table-wrap" }, el("table", { class: "jr-table" }, el("thead", null, head), body)), more);
   }
 
+  async function showShots(t) {
+    try {
+      const { media } = await JR.api.get(`/backtest-trades/${t.id}/media`);
+      if (media.length) JR.entries.lightbox(media, media[0].id);
+    } catch (e) { JR.toast(e.message, "error"); }
+  }
+
   // ---------------------------------------------------------------- форма угоди
-  function tradeForm(trade) {
+  async function tradeForm(trade) {
+    if (!JR.state.meta) { try { await JR.loadMeta(); } catch (e) { JR.toast(e.message, "error"); return; } }
+    // скріншоти вже збереженої угоди підвантажуються лише тут (в таблиці лише їх кількість)
+    const shotsEntry = { media: [] };
+    if (trade && trade.shots) { try { shotsEntry.media = (await JR.api.get(`/backtest-trades/${trade.id}/media`)).media; } catch (e) { JR.toast(e.message, "error"); return; } }
     const symbols = [...new Set(data.trades.map((t) => t.symbol).filter(Boolean))];
     const setups = [...new Set(data.trades.map((t) => t.setup).filter(Boolean))];
     const last = data.trades.length ? data.trades[data.trades.length - 1] : null;
@@ -278,24 +291,61 @@
       el("span", { class: "jr-dim", text: "Швидко:" }),
       QUICK_R.map((q) => el("button", { type: "button", class: "jr-btn is-quiet bt-q", text: q > 0 ? `+${q}` : q < 0 ? `−${-q}` : "0", title: `${q} R`, onclick: () => { r.value = String(q); showHint(); r.focus(); } })));
 
-    return JR.modal((done) => {
+    // скріншоти: та сама секція, що у записах журналу (перетягування, Ctrl+V, кнопка «Вставити», перегляд на весь екран), лише фото
+    const pending = [], uploaded = [];
+    let touched = false, saved = trade, busy = false;
+    const mkShots = () => JR.entries.mediaSection({ key: "shots", label: "Скріншоти" }, shotsEntry, pending, true, { imagesOnly: true, onChange: () => { touched = true; } });
+    let shots = mkShots();
+    const revoke = () => { [...pending, ...uploaded].forEach((p) => URL.revokeObjectURL(p.url)); };
+
+    const res = await JR.modal((done) => {
+      const buttons = () => [...form.querySelectorAll(".jr-actions button")];
       const body = () => ({ date: date.value, symbol: symbol.value, direction: (form.querySelector('input[name="bt-f-dir"]:checked') || { value: "" }).value, setup: setup.value, r: r.value, note: note.value });
+      // закриття (×, «Скасувати», Esc) не губить додані, але ще не збережені скріншоти мовчки
+      const askClose = async () => {
+        if (busy) return;
+        if (pending.length) {
+          const ok = await JR.confirm({ title: "Закрити без збереження?", text: "Додані скріншоти ще не збережені. Вони зникнуть.", ok: "Закрити без збереження", danger: true });
+          if (!ok) return;
+        }
+        done(false);
+      };
+      closeForm = askClose;
       const form = el("form", { class: "jr-entry-form", novalidate: true, onsubmit: async (ev) => {
         ev.preventDefault();
+        if (busy) return;
         err.hidden = true; status.textContent = "";
-        const next = !trade && !!ev.submitter && ev.submitter.dataset.next === "1";
+        const next = !trade && !saved && !!ev.submitter && ev.submitter.dataset.next === "1";
+        busy = true; buttons().forEach((x) => { x.disabled = true; });
+        const free = () => { busy = false; buttons().forEach((x) => { x.disabled = false; }); };
         const b = body();
         try {
-          if (trade) await JR.api.put(`/backtest-trades/${trade.id}`, b); else await JR.api.post(`/backtests/${current}/trades`, b);
+          if (saved) saved = (await JR.api.put(`/backtest-trades/${saved.id}`, b)).trade;
+          else saved = (await JR.api.post(`/backtests/${current}/trades`, b)).trade;
           if (!trade) memo = { date: b.date, symbol: b.symbol.trim().toUpperCase(), direction: b.direction, setup: b.setup.trim() };
-          await refresh();
-          if (!next) JR.toast(trade ? "Угоду збережено" : "Угоду додано");
-          if (next) { r.value = ""; note.value = ""; showHint(); status.textContent = `Додано. Усього угод у колекції: ${data.trades.length}. Вводь наступну.`; r.focus(); }
-          else done(true);
-        } catch (e) { JR.showError(err, e); }
+        } catch (e) { JR.showError(err, e); free(); return; }
+        const failed = [];
+        for (const p of pending.slice()) {
+          p.setStatus("Завантажую…");
+          try {
+            await JR.api.upload(`/backtest-trades/${saved.id}/media?name=${encodeURIComponent(p.file.name)}`, p.file);
+            pending.splice(pending.indexOf(p), 1); uploaded.push(p); touched = true; p.setStatus("Готово");
+          } catch (e) { failed.push(`${p.file.name}: ${e.message}`); p.setStatus("Помилка", true); }
+        }
+        try { await refresh(); } catch (e) { /* список оновиться при наступній дії */ }
+        if (failed.length) {          // угоду збережено, але частина скріншотів не пройшла: форма лишається відкритою (далі це правка)
+          JR.showError(err, new Error("Угоду збережено, але не всі скріншоти завантажились. " + failed.join(" ")));
+          free(); return;
+        }
+        if (next) {
+          r.value = ""; note.value = ""; showHint(); saved = null;
+          revoke(); uploaded.length = 0; shotsEntry.media = [];
+          const fresh = mkShots(); shots.replaceWith(fresh); shots = fresh;
+          status.textContent = `Додано. Усього угод у колекції: ${data.trades.length}. Вводь наступну.`; free(); r.focus();
+        } else { JR.toast(trade ? "Угоду збережено" : "Угоду додано"); done(true); }
       } },
         el("div", { class: "jr-dlg-head" }, el("h2", { id: "jr-dlg-title", text: trade ? `Угода ${trade.n}` : "Нова угода бектесту" }),
-          el("button", { type: "button", class: "jr-x", "aria-label": "Закрити", text: "×", onclick: () => done(false) })),
+          el("button", { type: "button", class: "jr-x", "aria-label": "Закрити", text: "×", onclick: () => askClose() })),
         el("div", { class: "jr-grid" },
           el("div", { class: "jr-field" }, el("label", { for: "bt-f-date", text: "Дата" }), date),
           el("div", { class: "jr-field" }, el("label", { for: "bt-f-symbol", text: "Інструмент" }), symbol),
@@ -305,22 +355,25 @@
           el("div", { class: "jr-field is-wide" }, el("label", { for: "bt-f-note", text: "Нотатка" }), note)),
         el("datalist", { id: "bt-dl-symbols" }, symbols.map((s) => el("option", { value: s }))),
         el("datalist", { id: "bt-dl-setups" }, setups.map((s) => el("option", { value: s }))),
-        err, status,
+        shots, err, status,
         el("div", { class: "jr-actions" },
           trade ? el("button", { type: "button", class: "jr-btn is-danger-quiet", id: "bt-del-trade", text: "Видалити", onclick: async () => {
-            const ok = await JR.confirm({ title: "Видалити угоду?", text: `Угода ${trade.n}: ${sg(trade.r, 3)} R. Це не можна скасувати.`, ok: "Видалити", danger: true });
+            const ok = await JR.confirm({ title: "Видалити угоду?", text: `Угода ${trade.n}: ${sg(trade.r, 3)} R${trade.shots || uploaded.length ? " і її скріншоти" : ""}. Це не можна скасувати.`, ok: "Видалити", danger: true });
             if (!ok) return;
             try { await JR.api.del(`/backtest-trades/${trade.id}`); await refresh(); JR.toast("Угоду видалено"); done(true); } catch (e) { JR.showError(err, e); }
           } }) : null,
           el("span", { class: "jr-spacer" }),
-          el("button", { type: "button", class: "jr-btn", text: "Скасувати", onclick: () => done(false) }),
+          el("button", { type: "button", class: "jr-btn", text: "Скасувати", onclick: () => askClose() }),
           trade ? el("button", { type: "submit", class: "jr-btn is-primary", id: "bt-save-trade", text: "Зберегти" })
             : [el("button", { type: "submit", class: "jr-btn is-primary", id: "bt-save-next", "data-next": "1", text: "Зберегти й додати ще" }),
                el("button", { type: "submit", class: "jr-btn", id: "bt-save-trade", text: "Зберегти" })]));
       (trade || memo || last ? r : symbol).setAttribute("data-autofocus", "1");
       return form;
-    }, { cls: "is-wide" });
+    }, { cls: "is-wide", onEscape: () => closeForm() });
+    revoke();
+    if (touched && !res) { try { await refresh(); } catch (e) { /* ок */ } }       // файли додавали або видаляли, але форму закрито без збереження
   }
+  let closeForm = () => {};
 
   // ---------------------------------------------------------------- колекції
   function colForm(col) {

@@ -44,6 +44,7 @@
 - `blobs` (ключ = `media.id`): сам файл (Blob)
 - `bt_cols` (ключ `id`): колекція бектесту `{id, name, note, risk_pct|null, created_at, _u}`
 - `bt_trades` (ключ `id`, індекс `col_id`): угода бектесту `{id, col_id, date|"", symbol, direction, setup, r, note, created_at, _u}`; `r` це результат у R
+- Скріншоти угоди бектесту лежать у спільному сховищі `media`: `entry_id` = id угоди, `journal_id: null`, `bt: 1`, `field: "shots"`; лише зображення, спільна квота. Маршрути `GET|POST /backtest-trades/:id/media`, видалення через `DELETE /media/:id`. Видалення угоди чи колекції (API і `removeLocal` у синхронізації) каскадом прибирає їхні скріншоти.
 - `outbox` (ключ `"<kind>/<id>"`): `{key, kind, id, op: "put"|"del", ts}`: що ще не відправлено в хмару
 - `meta`: `cloudUid`, `cursor`, `lastSync`, `lastBackup`
 

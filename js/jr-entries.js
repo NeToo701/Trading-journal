@@ -219,7 +219,9 @@
   };
 
   // ---------------------------------------------------------------- файли в формі
-  function mediaSection(field, entry, pending, first) {
+  /* opts: { imagesOnly: лише фото (скріншоти), onChange: викликається після видалення файла }.
+     Використовується також у формі угоди бектесту (js/jr-backtest.js), тому entry тут це будь-що з масивом media. */
+  function mediaSection(field, entry, pending, first, opts = {}) {
     const existing = entry ? entry.media.filter((m) => m.field === field.key) : [];
     const grid = el("div", { class: "jr-thumbs" });
     const limits = state.meta.limits;
@@ -234,7 +236,7 @@
         onDelete: async () => {
           const ok = await JR.confirm({ title: "Видалити файл?", text: m.name, ok: "Видалити", danger: true });
           if (!ok) return;
-          try { await JR.api.del(`/media/${m.id}`); node.remove(); if (entry) entry.media = entry.media.filter((x) => x.id !== m.id); JR.refreshCounts(); } catch (e) { JR.toast(e.message, "error"); }
+          try { await JR.api.del(`/media/${m.id}`); node.remove(); if (entry) entry.media = entry.media.filter((x) => x.id !== m.id); JR.refreshCounts(); if (opts.onChange) opts.onChange(); } catch (e) { JR.toast(e.message, "error"); }
         } });
       grid.append(node);
     };
@@ -246,7 +248,8 @@
         const ext = (file.name.split(".").pop() || "").toLowerCase();
         const type = file.type || ({ png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime" }[ext] || "");
         const isVideo = type.startsWith("video/"), isImage = type.startsWith("image/") && type !== "image/svg+xml";
-        if (!isVideo && !isImage) { bad.push(`${file.name}: підтримуються фото й відео`); continue; }
+        if (opts.imagesOnly && isVideo) { bad.push(`${file.name}: тут можна додавати лише фото`); continue; }
+        if (!isVideo && !isImage) { bad.push(`${file.name}: підтримуються ${opts.imagesOnly ? "фото" : "фото й відео"}`); continue; }
         const lim = (isVideo ? limits.video_mb : limits.image_mb) * 1048576;
         if (file.size > lim) { bad.push(`${file.name}: більше ${isVideo ? limits.video_mb : limits.image_mb} МБ`); continue; }
         if (existing.length + pending.length >= limits.media_per_entry) { bad.push(`не більше ${limits.media_per_entry} файлів до запису`); break; }
@@ -264,11 +267,11 @@
       }
       if (bad.length) { err.textContent = bad.join("; ") + "."; err.hidden = false; }
     };
-    const input = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime", multiple: true, class: "jr-file", id: "jr-file-" + field.key });
+    const input = el("input", { type: "file", accept: opts.imagesOnly ? "image/png,image/jpeg,image/webp,image/gif" : "image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime", multiple: true, class: "jr-file", id: "jr-file-" + field.key });
     input.addEventListener("change", () => { addFiles([...input.files]); input.value = ""; });
     const drop = el("label", { class: "jr-drop", for: input.id },
-      el("strong", { text: "Додати фото або відео" }),
-      el("span", { text: `Перетягни сюди, натисни або встав зі скріншота (Ctrl+V чи кнопка «Вставити»). Фото до ${limits.image_mb} МБ, відео до ${limits.video_mb} МБ.` }));
+      el("strong", { text: opts.imagesOnly ? "Додати скріншоти" : "Додати фото або відео" }),
+      el("span", { text: `Перетягни сюди, натисни або встав зі скріншота (Ctrl+V чи кнопка «Вставити»). ${opts.imagesOnly ? `Фото до ${limits.image_mb} МБ.` : `Фото до ${limits.image_mb} МБ, відео до ${limits.video_mb} МБ.`}` }));
     ["dragenter", "dragover"].forEach((n) => drop.addEventListener(n, (ev) => { ev.preventDefault(); drop.classList.add("is-over"); }));
     ["dragleave", "drop"].forEach((n) => drop.addEventListener(n, (ev) => { ev.preventDefault(); drop.classList.remove("is-over"); }));
     drop.addEventListener("drop", (ev) => addFiles([...ev.dataTransfer.files]));
@@ -311,6 +314,8 @@
     }
     return section;
   }
+
+  E.mediaSection = mediaSection;
 
   function pastedFiles(cd) {
     if (!cd) return [];

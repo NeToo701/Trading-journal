@@ -222,9 +222,9 @@ def t_ui_flow(env):
     raw = open(path, "rb").read()
     ok(raw.startswith(b"\xef\xbb\xbf"), "CSV з BOM для Excel")
     lines = raw.decode("utf-8-sig").strip().split("\r\n")
-    eq(lines[0], '№,Дата,Інструмент,Напрямок,Сетап,"Результат, R",Нотатка', "заголовок CSV")
+    eq(lines[0], '№,Дата,Інструмент,Напрямок,Сетап,"Результат, R",Нотатка,Скріншотів', "заголовок CSV")
     eq(len(lines), 8, "у CSV сім угод")
-    ok(lines[1].startswith("1,2024-03-01,BTCUSDT,Лонг,Пробій,5,"), f"перший рядок CSV: {lines[1]}")
+    ok(lines[1].startswith("1,2024-03-01,BTCUSDT,Лонг,Пробій,5,") and lines[1].endswith(",0"), f"перший рядок CSV: {lines[1]}")
     # зміна й видалення колекції
     pg.click("#bt-edit-col"); pg.fill("#bt-c-name", "Пробій v2"); pg.fill("#bt-c-risk", ""); pg.click("#bt-c-save")
     pg.wait_for_selector("dialog[open]", state="detached")
@@ -335,7 +335,172 @@ def t_sync(env):
     no_errors(A); no_errors(B)
 
 
-TESTS = [("db_upgrade", t_db_upgrade), ("api", t_api), ("ui_flow", t_ui_flow), ("ui_mobile", t_ui_mobile), ("backup", t_backup), ("sync", t_sync)]
+# ------------------------------------------------------------------------------------------------ скріншоти
+UPLOAD = """async ([id, w, h, name]) => { const b = await __t.png(w, h, false);
+  try { const r = await JL.api.upload(`/backtest-trades/${id}/media?name=${name}`, b); return { ok: r }; } catch (e) { return { error: e.message, status: e.status }; } }"""
+
+
+def shot(pg, tid, w=40, h=30, name="a.png"):
+    r = pg.evaluate(UPLOAD, [tid, w, h, name])
+    ok("ok" in r, f"завантаження {name}: {r.get('error')}")
+    return r.get("ok", {}).get("media")
+
+
+def media_state(pg):
+    return pg.evaluate("""async () => JL.db.tx(['media', 'blobs', 'outbox'], 'readonly', async t => ({
+      m: (await t.all('media')).map(x => [x.id, x.entry_id, x.bt || 0, x.mime]).sort(), b: (await t.keys('blobs')).length,
+      ob: (await t.all('outbox')).filter(o => o.kind === 'media').map(o => o.op).sort() }))""")
+
+
+def t_shots_api(env):
+    pg = env.page()
+    cid = mk_col(pg, "Скріни")
+    t1 = mk_tr(pg, cid, 2, date="2024-01-01"); t2 = mk_tr(pg, cid, -1, date="2024-01-02")
+    eq(expect_ok(pg, "get", f"/backtest-trades/{t1['id']}/media"), {"media": []}, "спочатку скріншотів немає")
+    m1 = shot(pg, t1["id"], 50, 30, "a b.png"); shot(pg, t1["id"], 20, 20, "c.png")
+    eq((m1["mime"], m1["field"], m1["name"]), ("image/png", "shots", "a b.png"), "скріншот збережено")
+    nat = pg.evaluate("""async (u) => { const i = new Image(); i.src = u; await i.decode(); return [i.naturalWidth, i.naturalHeight]; }""", m1["url"])
+    eq(nat, [50, 30], "скріншот відкривається")
+    got = expect_ok(pg, "get", f"/backtests/{cid}")["trades"]
+    eq([(t["id"] == t1["id"], t["shots"]) for t in got], [(True, 2), (False, 0)], "лічильник скріншотів у списку угод")
+    eq([x["name"] for x in expect_ok(pg, "get", f"/backtest-trades/{t1['id']}/media")["media"]], ["a b.png", "c.png"], "список скріншотів угоди")
+    ms = media_state(pg)
+    ok(all(x[1] == t1["id"] and x[2] == 1 for x in ms["m"]) and ms["b"] == 2, f"файли лежать у сховищі з позначкою bt: {ms}")
+    # відхилення: відео, текст, порожній файл, неіснуюча угода
+    for label, js in (("відео", "__t.mp4()"), ("текст", "new Blob(['hello world, not an image'], { type: 'image/png' })"), ("порожній", "new Blob([], { type: 'image/png' })")):
+        r = pg.evaluate("async ([id]) => { try { await JL.api.upload(`/backtest-trades/${id}/media?name=x`, " + js + "); return { ok: 1 }; } catch (e) { return { status: e.status, error: e.message }; } }", [t2["id"]])
+        ok(r.get("status") in (400, 415), f"{label} не приймається: {r}")
+    r = pg.evaluate("async () => { try { await JL.api.upload('/backtest-trades/5/media?name=x', await __t.png(5, 5, false)); return { ok: 1 }; } catch (e) { return { status: e.status }; } }")
+    eq(r.get("status"), 404, "скріншот до неіснуючої угоди")
+    expect_err(pg, 404, "get", "/backtest-trades/5/media", None, "список скріншотів неіснуючої угоди")
+    # ліміт на угоду
+    for i in range(18): shot(pg, t1["id"], 5, 5, f"s{i}.png")
+    r = pg.evaluate(UPLOAD, [t1["id"], 5, 5, "зайвий.png"])
+    eq(r.get("status"), 422, "20 скріншотів на угоду: далі не можна")
+    # видалення одного скріншота загальним маршрутом
+    expect_ok(pg, "del", f"/media/{m1['id']}")
+    eq(len(expect_ok(pg, "get", f"/backtest-trades/{t1['id']}/media")["media"]), 19, "скріншот видалено")
+    # видалення угоди прибирає її скріншоти, файли й ставить видалення в чергу
+    shot(pg, t2["id"], 8, 8, "t2.png")
+    before = media_state(pg)
+    expect_ok(pg, "del", f"/backtest-trades/{t1['id']}")
+    ms = media_state(pg)
+    eq((len(ms["m"]), ms["b"]), (1, 1), "після видалення угоди лишився лише скріншот іншої")
+    ok(ms["ob"].count("del") == 20, f"видалення скріншотів у черзі відправки: {ms['ob'].count('del')}")
+    # видалення колекції
+    expect_ok(pg, "del", f"/backtests/{cid}")
+    eq(media_state(pg)["m"], [], "після видалення колекції скріншотів не лишилось")
+    eq(media_state(pg)["b"], 0, "файли теж видалені")
+    no_errors(pg)
+
+
+def t_shots_ui(env):
+    ctx = env.browser.new_context(viewport={"width": 1280, "height": 900}, permissions=["clipboard-read", "clipboard-write"])
+    pg = env.page(ctx)
+    cid = mk_col(pg, "UI скріни")
+    expect_ok(pg, "get", "/meta")
+    open_bt(pg); pg.wait_for_selector("#bt-empty")
+    clip = lambda w, h: pg.evaluate("""async ([w, h]) => { const b = await __t.png(w, h, false); await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); }""", [w, h])
+    # нова угода: кнопка «Вставити» і Ctrl+V
+    pg.click("#bt-first-trade"); pg.wait_for_selector("#jr-paste-shots")
+    ok("Додати скріншоти" in pg.inner_text(".jr-media"), "у формі секція скріншотів")
+    ok("video" not in (pg.locator("#jr-file-shots").get_attribute("accept") or ""), "приймаються лише фото")
+    clip(120, 80); pg.click("#jr-paste-shots"); pg.wait_for_selector(".jr-thumb.is-pending")
+    pg.fill("#bt-f-r", "2"); pg.focus("#bt-f-r"); clip(60, 40); pg.keyboard.press("Control+V")
+    pg.locator(".jr-thumb.is-pending").nth(1).wait_for()
+    eq(pg.input_value("#bt-f-r"), "2", "Ctrl+V із зображенням не псує текст у полі")
+    # ще не збережений скріншот відкривається на весь екран
+    pg.click(".jr-thumb.is-pending .jr-thumb-open >> nth=0"); pg.wait_for_selector("dialog.is-lightbox[open] .jr-vw-stage img")
+    eq(pg.locator(".jr-vw-count").inner_text(), "1 / 2", "у перегляді обидва скріншоти")
+    pg.keyboard.press("Escape"); pg.wait_for_selector("dialog.is-lightbox", state="detached")
+    # Esc у формі з доданими скріншотами питає підтвердження
+    pg.keyboard.press("Escape"); pg.wait_for_selector("dialog[open] .jr-btn.is-danger")
+    ok("скріншоти" in pg.inner_text("dialog[open]:last-of-type"), "попередження про незбережені скріншоти")
+    pg.click("dialog[open]:last-of-type .jr-btn:not(.is-danger)")
+    pg.wait_for_selector("#bt-f-r")
+    eq(pg.locator(".jr-thumb.is-pending").count(), 2, "після «Скасувати» форма й скріншоти на місці")
+    # збереження й додати ще: секція очищується
+    pg.click("#bt-save-next"); pg.wait_for_selector("#bt-trade-status:not(:empty)")
+    eq(pg.locator(".jr-thumb").count(), 0, "для наступної угоди скріншотів немає")
+    pg.fill("#bt-f-r", "-1"); pg.click("#bt-save-trade"); pg.wait_for_selector("dialog[open]", state="detached")
+    pg.wait_for_selector("#bt-list tr")
+    rows = pg.eval_on_selector_all("#bt-list tr", "rs => rs.map(r => r.querySelector('.bt-shots').textContent.trim())")
+    eq(rows, ["—", "📷 2"], "в таблиці видно кількість скріншотів (нові зверху)")
+    ok("Скріншоти" in pg.inner_text("#bt-trades thead"), "колонка «Скріншоти»")
+    # клік по 📷 відкриває перегляд, а не форму
+    pg.click("#bt-list tr >> nth=1 >> .bt-shot"); pg.wait_for_selector("dialog.is-lightbox[open] .jr-vw-stage img")
+    eq((pg.locator("dialog[open]").count(), pg.locator(".jr-vw-count").inner_text()), (1, "1 / 2"), "відкрився лише перегляд зі скріншотами")
+    ok(pg.locator(".jr-vw-note").is_hidden(), "збережені скріншоти без позначки")
+    pg.keyboard.press("Escape"); pg.wait_for_selector("dialog.is-lightbox", state="detached")
+    # правка: збережені скріншоти видно, один видаляється, форму закрито без збереження — таблиця все одно оновилась
+    pg.click("#bt-list tr >> nth=1 >> td >> nth=0"); pg.wait_for_selector("#jr-paste-shots")
+    eq(pg.locator(".jr-thumb:not(.is-pending)").count(), 2, "у правці збережені скріншоти")
+    pg.click(".jr-thumb >> nth=0 >> .jr-thumb-x"); pg.click("dialog[open]:last-of-type .jr-btn.is-danger")
+    pg.locator(".jr-thumb").nth(1).wait_for(state="detached")
+    pg.click("dialog[open] .jr-actions .jr-btn >> text=Скасувати"); pg.wait_for_selector("dialog[open]", state="detached")
+    pg.wait_for_selector("#bt-list tr >> nth=1 >> .bt-shot:has-text('1')")
+    # додати ще в існуючу угоду й видалити угоду
+    pg.click("#bt-list tr >> nth=1 >> td >> nth=0"); pg.wait_for_selector("#jr-paste-shots")
+    clip(30, 30); pg.click("#jr-paste-shots"); pg.wait_for_selector(".jr-thumb.is-pending")
+    pg.click("#bt-save-trade"); pg.wait_for_selector("dialog[open]", state="detached")
+    pg.wait_for_selector("#bt-list tr >> nth=1 >> .bt-shot:has-text('2')")
+    pg.click("#bt-list tr >> nth=1 >> td >> nth=0"); pg.wait_for_selector("#bt-del-trade")
+    pg.click("#bt-del-trade"); ok("скріншоти" in pg.inner_text("dialog[open]:last-of-type"), "підтвердження видалення згадує скріншоти")
+    pg.click("dialog[open]:last-of-type .jr-btn.is-danger"); pg.wait_for_selector("dialog[open]", state="detached")
+    eq(media_state(pg)["m"], [], "скріншоти видаленої угоди прибрано")
+    # CSV: кількість скріншотів
+    no_errors(pg)
+    ctx.close()
+
+
+def t_shots_backup_sync(env):
+    # резервна копія
+    pg = env.page()
+    cid = mk_col(pg, "Копія зі скріншотами"); t = mk_tr(pg, cid, 1)
+    shot(pg, t["id"], 33, 22)
+    pg.evaluate("async () => { window.__bk = (await JL.backupCreate()).blob; }")
+    expect_ok(pg, "del", f"/backtests/{cid}")
+    eq(media_state(pg)["m"], [], "усе видалено")
+    r = pg.evaluate("async () => JL.backupRestore(new File([window.__bk], 'k.zip'))")
+    eq((r["backtests"], r["bt_trades"], r["media"]), (1, 1, 1), "відновлено колекцію, угоду й скріншот")
+    got = expect_ok(pg, "get", f"/backtest-trades/{t['id']}/media")["media"]
+    nat = pg.evaluate("""async (u) => { const i = new Image(); i.src = u; await i.decode(); return [i.naturalWidth, i.naturalHeight]; }""", got[0]["url"])
+    eq(nat, [33, 22], "скріншот відкривається після відновлення")
+    no_errors(pg)
+    # хмара
+    cloud = Cloud()
+    A = device(env, cloud)
+    c1 = mk_col(A, "Хмарна"); t1 = mk_tr(A, c1, 2); t2 = mk_tr(A, c1, 1)
+    shot(A, t1["id"], 41, 27); shot(A, t2["id"], 10, 10)
+    login(A)
+    uid = "uid-a@test.io"
+    eq(len(cloud.docs(uid, "media")), 2, "скріншоти в хмарі")
+    B = device(env, cloud); login(B)
+    eq(media_state(B)["m"], media_state(A)["m"], "B отримав скріншоти")
+    got = expect_ok(B, "get", f"/backtest-trades/{t1['id']}/media")["media"]
+    nat = B.evaluate("""async (u) => { const i = new Image(); i.src = u; await i.decode(); return [i.naturalWidth, i.naturalHeight]; }""", got[0]["url"])
+    eq(nat, [41, 27], "скріншот відкривається на B")
+    eq(expect_ok(B, "get", f"/backtests/{c1}")["trades"][0]["shots"], 1, "лічильник на B")
+    # B видаляє скріншот, потім угоду: на A все зникає
+    time.sleep(0.02)
+    expect_ok(B, "del", f"/media/{got[0]['id']}")
+    sync_now(B); sync_now(A)
+    eq(len(media_state(A)["m"]), 1, "видалення скріншота дійшло до A")
+    expect_ok(B, "del", f"/backtest-trades/{t2['id']}")
+    sync_now(B); sync_now(A)
+    st = media_state(A)
+    eq((st["m"], st["b"]), ([], 0), "видалення угоди прибрало скріншот на A")
+    # видалення колекції зі скріншотами
+    t3 = mk_tr(A, c1, 3); shot(A, t3["id"], 12, 12); sync_now(A); sync_now(B)
+    eq(len(media_state(B)["m"]), 1, "новий скріншот дійшов до B")
+    expect_ok(A, "del", f"/backtests/{c1}"); sync_now(A); sync_now(B)
+    st = media_state(B)
+    eq((st["m"], st["b"]), ([], 0), "видалення колекції прибрало скріншоти на B")
+    no_errors(A); no_errors(B)
+
+
+TESTS = [("db_upgrade", t_db_upgrade), ("api", t_api), ("ui_flow", t_ui_flow), ("ui_mobile", t_ui_mobile), ("backup", t_backup), ("sync", t_sync),
+         ("shots_api", t_shots_api), ("shots_ui", t_shots_ui), ("shots_backup_sync", t_shots_backup_sync)]
 
 if __name__ == "__main__":
     import sys

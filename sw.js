@@ -1,7 +1,7 @@
 /* Сервіс-воркер журналу: щоб застосунок можна було встановити і відкрити без інтернету.
    Кешується лише оболонка (сторінка, скрипти, стилі, шрифти, іконки) і SDK Firebase. Дані журналу тут не проходять:
    вони лежать у IndexedDB браузера, а до хмари йдуть прямо з коду застосунку. Онлайн завжди береться свіжа версія файлів. */
-const CACHE = "journal-shell-v6";
+const CACHE = "journal-shell-v7";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "firebase-config.js",
   "assets/style.css", "assets/journal.css", "assets/icon-192.png", "assets/icon-512.png", "assets/apple-touch-icon.png",

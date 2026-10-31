@@ -70,21 +70,24 @@
 
   // ---------------------------------------------------------------- маршрутизація
   function route() {
-    const view = location.hash === "#calendar" ? "calendar" : location.hash === "#backtest" ? "backtest" : "journal";
+    const view = location.hash === "#calendar" ? "calendar" : location.hash === "#backtest" ? "backtest" : location.hash === "#calc" ? "calc" : "journal";
     const prev = document.body.dataset.view;
     const changed = prev !== view;
     document.body.dataset.view = view;
     $("#calendar-view").hidden = view !== "calendar";
     $("#jr-shell").hidden = view !== "journal";
     $("#bt-shell").hidden = view !== "backtest";
-    // Висувна панель на телефоні не переходить між журналом і бектестами. Лише порожній журнал показує її відкритою (див. renderEmpty).
-    if (changed && (view === "backtest" || prev === "backtest")) document.body.classList.toggle("jr-side-open", view === "journal" && !window.JR.state.journals.length);
-    for (const [id, v] of [["#tab-journal", "journal"], ["#tab-calendar", "calendar"], ["#tab-backtest", "backtest"]]) {
+    $("#calc-shell").hidden = view !== "calc";
+    // Висувна панель на телефоні не переходить між журналом, бектестами й калькуляторами. Лише порожній журнал показує її відкритою (див. renderEmpty).
+    const own = (v) => v === "backtest" || v === "calc";
+    if (changed && (own(view) || own(prev))) document.body.classList.toggle("jr-side-open", view === "journal" && !window.JR.state.journals.length);
+    for (const [id, v] of [["#tab-journal", "journal"], ["#tab-calendar", "calendar"], ["#tab-backtest", "backtest"], ["#tab-calc", "calc"]]) {
       const a = $(id);
       if (v === view) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     }
     if (view === "calendar") renderAll();
     if (view === "backtest" && window.JR.backtest) window.JR.backtest.show();
+    if (view === "calc" && window.JR.calc) window.JR.calc.show();
     if (changed) window.scrollTo(0, 0);
   }
 

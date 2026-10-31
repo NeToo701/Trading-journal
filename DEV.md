@@ -27,6 +27,7 @@
 | `jl-db.js` | IndexedDB `journal-app-v1`: `tx(stores, mode, fn)`, `nextId`, `meta` | `journal.py` (SQLite) |
 | `jl-api.js` | маршрутизатор, ті самі маршрути, що `journal_api.py` | `journal_api.py`, `JournalStore` |
 | `jl-backtest.js` | бектести: `JL.bt` (`cleanCol`, `cleanTrade`, `order`, `compute`), чисті функції без бази | немає |
+| `jl-calc.js` | калькулятори: `JL.calc` (`cleanAsset`, `cleanPrefs`, `mergeAssets`, `sizeLots`), чисті функції без бази | немає |
 | `jl-backup.js` | резервна копія ZIP: `backupCreate`, `backupRestore` | немає |
 | `jl-sync.js` | черга, синхронізація, злиття | немає |
 | `jl-firebase.js` | Firebase Auth + Firestore (`JL.cloud`) | немає |
@@ -43,6 +44,7 @@
 - `media` (ключ `id`, індекс `entry_id`): `{id, entry_id, journal_id, field, name, mime, size, created_at, _u}`
 - `blobs` (ключ = `media.id`): сам файл (Blob)
 - `bt_cols` (ключ `id`): колекція бектесту `{id, name, note, risk_pct|null, created_at, _u}`
+- `calc` (ключ `key` рядком): активи й налаштування калькуляторів. `asset|СИМВОЛ` це змінений вбудований (EURUSD, GBPUSD, XAUUSD, вбудовані лежать у `JL.calc.DEFAULT_ASSETS`) або власний актив `{symbol, name, kind, contract_size, pip_size, quote_ccy, digits, min_lot, lot_step, max_lot, commission, hidden}`; `prefs` це депозит, ризик, плече, валюта рахунку, вибраний актив і курси `{acc_ccy, deposit, risk_mode, risk_pct, risk_money, leverage, symbol, rates}`. Скидання вбудованого активу видаляє запис. Версія бази 3.
 - `bt_trades` (ключ `id`, індекс `col_id`): угода бектесту `{id, col_id, date|"", symbol, direction, setup, r, note, created_at, _u}`; `r` це результат у R
 - Скріншоти угоди бектесту лежать у спільному сховищі `media`: `entry_id` = id угоди, `journal_id: null`, `bt: 1`, `field: "shots"`; лише зображення, спільна квота. Маршрути `GET|POST /backtest-trades/:id/media`, видалення через `DELETE /media/:id`. Видалення угоди чи колекції (API і `removeLocal` у синхронізації) каскадом прибирає їхні скріншоти.
 - `outbox` (ключ `"<kind>/<id>"`): `{key, kind, id, op: "put"|"del", ts}`: що ще не відправлено в хмару
@@ -100,7 +102,9 @@
   Колекція це окремий бектест, угода має мінімум полів (дата, інструмент, напрямок, сетап, результат у R, нотатка). Порядок угод: за датою, якщо дата є в усіх, інакше за порядком додавання. Беззбиток: до ±0,05 R, як у журналі.
   Версію бази піднято до 2 (`jl-db.js`): `onupgradeneeded` створює лише відсутні сховища й скидає курсор хмари, щоб підтягнути нові види записів з інших пристроїв. Синхронізація, резервна копія й `clearAll` знають про `bt_cols` і `bt_trades` (у копіях без цих масивів відновлення працює як раніше).
   Нові види записів у синхронізації: додати в `STORE` і `ALL` у `jl-sync.js`, у `removeLocal`, у `jl-backup.js`.
-- Тести: `tests/e2e_review.py` (розбір, редактор, міграція, панель, вставка, перегляд фото, прокрутка таблиці), `tests/review_cfg.test.js`, `tests/backtest.test.js` і `tests/e2e_backtest.py` (бектести: база, API, інтерфейс, телефон, копія, хмара).
+- **Калькулятори** (розділ `#calc`): `lib/jl-calc.js` (перевірка активів і налаштувань, `sizeLots`), маршрути `/calc/assets*` і `/calc/prefs` у `lib/jl-api.js`, інтерфейс `js/jr-calc.js` (`JR.calc`). Список калькуляторів це масив `TOOLS` у `jr-calc.js`, новий калькулятор це функція `render` у ньому. Актив для будь-якого калькулятора вибирається через `JR.calc.assetField(onChange)` (список, «Параметри», «+ Новий»), вибраний символ лежить у `S.symbol`.
+  Вбудовані активи не копіюються в базу: запис `asset|EURUSD` з'являється лише після зміни параметрів і видаляється при скиданні (це видалення синхронізується). Ключ запису має вигляд `asset|СИМВОЛ` (символ лише `A-Z0-9._-`, бо він іде в ідентифікатор документа Firestore), синхронізація приймає тільки такі ключі й `prefs`. `sizeLots` повертає `{ok, missing, errors, warnings, result}`: `missing` (ще не заповнено) інтерфейс показує підказкою, `errors` позначає поля. Лот округлюється вниз до кроку, комісія входить у ризик на лот. Версію бази піднято до 3 (сховище `calc`).
+- Тести: `tests/e2e_review.py` (розбір, редактор, міграція, панель, вставка, перегляд фото, прокрутка таблиці), `tests/review_cfg.test.js`, `tests/backtest.test.js` і `tests/e2e_backtest.py` (бектести: база, API, інтерфейс, телефон, копія, хмара), `tests/calc.test.js` і `tests/e2e_calc.py` (калькулятори: розрахунок лота, активи, налаштування, інтерфейс, телефон, копія, хмара).
 
 ## Тести (`python3 tests/run_all.py`)
 

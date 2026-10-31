@@ -39,7 +39,7 @@ def bt_dump(pg):
 
 # ------------------------------------------------------------------------------------------------ база
 def t_db_upgrade(env):
-    """Стара база (версія 1) з даними оновлюється до версії 2: дані на місці, з'являються сховища бектестів, курсор хмари скинуто."""
+    """Стара база (версія 1) з даними оновлюється до поточної версії: дані на місці, з'являються сховища бектестів і калькуляторів, курсор хмари скинуто."""
     pg = env.page(boot=False)
     pg.goto(env.url.replace("index.html", "manifest.webmanifest"))
     pg.evaluate("""() => new Promise((res, rej) => {
@@ -58,8 +58,8 @@ def t_db_upgrade(env):
     info = pg.evaluate("""async () => { const db = await JL.db.open();
       return { v: db.version, stores: [...db.objectStoreNames].sort(), idx: [...db.transaction('bt_trades').objectStore('bt_trades').indexNames],
                j: await JL.db.tx(['journals'], 'readonly', t => t.get('journals', 111)), cursor: (await JL.db.meta.get('cursor')) ?? null, backup: await JL.db.meta.get('lastBackup') }; }""")
-    eq(info["v"], 2, "версія бази 2")
-    ok("bt_cols" in info["stores"] and "bt_trades" in info["stores"] and len(info["stores"]) == 9, f"сховища: {info['stores']}")
+    eq(info["v"], 3, "версія бази 3")
+    ok("bt_cols" in info["stores"] and "bt_trades" in info["stores"] and "calc" in info["stores"] and len(info["stores"]) == 10, f"сховища: {info['stores']}")
     eq(info["idx"], ["col_id"], "індекс угод за колекцією")
     eq((info["j"]["name"], info["j"]["_u"]), ("Старий журнал", 5), "старий журнал не змінився")
     eq((info["cursor"], info["backup"]), (None, 777), "курсор хмари скинуто, решта налаштувань на місці")

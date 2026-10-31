@@ -29,6 +29,7 @@
     <nav class="tabs" aria-label="Розділи">
       <a href="#journal" id="tab-journal" aria-current="page">Журнал</a>
       <a href="#backtest" id="tab-backtest">Бектести</a>
+      <a href="#calc" id="tab-calc">Калькулятори</a>
       <a href="#calendar" id="tab-calendar">Календар новин</a>
     </nav>
     <div class="top-end">
@@ -72,6 +73,11 @@
     <main class="jr-main" id="bt-main" tabindex="-1"></main>
   </div>
 
+  <div class="jr-shell" id="calc-shell" hidden>
+    <aside class="jr-side" id="calc-side" aria-label="Калькулятори"></aside>
+    <main class="jr-main" id="calc-main" tabindex="-1"></main>
+  </div>
+
   <main class="cal" id="calendar-view" hidden>
     <aside class="cal-side">
       <section class="panel" aria-labelledby="flt-h">
@@ -109,6 +115,7 @@
   <script src="lib/jl-formula.js"></script>
   <script src="lib/jl-review.js"></script>
   <script src="lib/jl-backtest.js"></script>
+  <script src="lib/jl-calc.js"></script>
   <script src="lib/jl-import.js"></script>
   <script src="lib/jl-news.js"></script>
   <script src="lib/jl-db.js"></script>
@@ -126,6 +133,7 @@
   <script src="js/jr-review-cfg.js"></script>
   <script src="js/jr-import.js"></script>
   <script src="js/jr-backtest.js"></script>
+  <script src="js/jr-calc.js"></script>
   <script src="js/jr-account.js"></script>
   <script src="js/journal.js"></script>
   <script src="js/jr-calendar.js"></script>

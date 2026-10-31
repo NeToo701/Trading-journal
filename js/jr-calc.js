@@ -1,5 +1,6 @@
-/* Калькулятори: окремий розділ (#calc). Зліва список калькуляторів, справа вибраний. Зараз є один: розмір позиції (лоти під ризик).
-   Усе рахується в lib/jl-calc.js, тут лише показ. Список активів спільний для всіх калькуляторів: його можна змінювати прямо з будь-якого
+/* Калькулятори: окремий розділ (#calc). Зліва список калькуляторів за групами, справа вибраний. Калькулятор лотів (розмір позиції) написано
+   окремо нижче, решта будується з описів у lib/jl-calc-tools.js однією спільною функцією renderGeneric (форма з полів, результат з опису).
+   Усе рахується в lib/jl-calc.js і lib/jl-calc-tools.js, тут лише показ. Список активів спільний для всіх калькуляторів: його можна змінювати прямо з будь-якого
    калькулятора (кнопки «Параметри» й «+ Новий» біля вибору активу) або в вікні «Активи». Увесь текст вставляється через textContent. */
 (function () {
   "use strict";
@@ -60,7 +61,8 @@
   }
 
   // ---------------------------------------------------------------- розділ
-  const TOOLS = [{ id: "lots", title: "Розмір позиції", hint: "лоти під заданий ризик", render: renderLots }];
+  const TOOLS = [{ id: "lots", group: "risk", title: "Розмір позиції (лоти)", hint: "лоти під заданий ризик", render: renderLots },
+    ...JL.calcTools.TOOLS.map((spec) => ({ id: spec.id, group: spec.group, title: spec.title, hint: spec.hint, render: () => renderGeneric(spec) }))];
 
   C.show = async function () {
     try {
@@ -74,14 +76,15 @@
   };
 
   function renderSide() {
-    side().replaceChildren(
-      el("section", { class: "jr-side-block", "aria-labelledby": "calc-side-h" },
-        el("h2", { id: "calc-side-h", text: "Калькулятори" }),
-        el("ul", { class: "jr-jlist" }, TOOLS.map((t) => el("li", null,
-          el("button", { type: "button", class: "jr-jbtn", "data-tool": t.id, "aria-current": t === tool ? "true" : null, onclick: () => pickTool(t), title: t.hint },
-            el("span", { class: "jr-jname", text: t.title }))))),
-        el("button", { type: "button", class: "jr-btn is-quiet jr-add", id: "calc-assets-btn", text: "Активи й параметри", title: "Список активів, розмір контракту, пункту, лота", onclick: () => assetsDialog() })),
-      el("p", { class: "jr-note", text: "Активи спільні для всіх калькуляторів. Параметри (контракт, пункт, крок лота) беруться зі специфікації твого брокера: вони можуть відрізнятися, тому їх можна змінити." }));
+    const blocks = JL.calcTools.GROUPS.map(([gid, label]) => el("section", { class: "jr-side-block", "aria-labelledby": `calc-g-${gid}` },
+      el("h2", { id: `calc-g-${gid}`, text: label }),
+      el("ul", { class: "jr-jlist" }, TOOLS.filter((t) => t.group === gid).map((t) => el("li", null,
+        el("button", { type: "button", class: "jr-jbtn", "data-tool": t.id, "aria-current": t === tool ? "true" : null, onclick: () => pickTool(t), title: t.hint },
+          el("span", { class: "jr-jname", text: t.title })))))));
+    side().replaceChildren(...blocks,
+      el("section", { class: "jr-side-block" },
+        el("button", { type: "button", class: "jr-btn is-quiet jr-add", id: "calc-assets-btn", text: "Активи й параметри", title: "Список активів, розмір контракту, пункту, лота", onclick: () => assetsDialog() }),
+        el("p", { class: "jr-note", text: "Активи спільні для всіх калькуляторів. Параметри (контракт, пункт, крок лота) беруться зі специфікації твого брокера: вони можуть відрізнятися, тому їх можна змінити." })));
   }
 
   function pickTool(t) {
@@ -254,6 +257,143 @@
             el("td", { class: "jr-num", text: s.lots ? fx(s.lots, Math.min(dec, 2), Math.max(dec, 2)) : "менше мінімуму" }),
             el("td", { class: "jr-num", text: s.lots ? n2(s.risk_money) : "—" }))))))) : null,
       el("p", { class: "jr-note", text: "Лот округлюється вниз до кроку, тому реальний ризик не перевищує заданий. Розрахунок орієнтовний: перевір вартість пункту у своєму брокері." }));
+  }
+
+  // ---------------------------------------------------------------- решта калькуляторів: форма й результат за описом (lib/jl-calc-tools.js)
+  const VALS_KEY = "journal.calc.vals.v1";
+  const VALS = {};          // id калькулятора -> значення полів; живуть, поки відкрита сторінка
+  const keepLoad = () => { try { const o = JSON.parse(lsGet(VALS_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; } };
+  /** Налаштування-звички (комісії, ставки, режими) запам'ятовуються між запусками, а ціни й суми ні. */
+  const keepSave = (spec, vals) => { const all = keepLoad(); all[spec.id] = Object.fromEntries(spec.fields.filter((f) => f.keep).map((f) => [f.key, vals[f.key]])); lsSet(VALS_KEY, JSON.stringify(all)); };
+  function valsOf(spec) {
+    if (!VALS[spec.id]) {
+      const saved = keepLoad()[spec.id] || {};
+      VALS[spec.id] = Object.fromEntries(spec.fields.filter((f) => f.kind !== "asset" && !f.pref).map((f) => [f.key, f.keep && saved && typeof saved[f.key] === "string" ? saved[f.key] : (f.def || "")]));
+    }
+    return VALS[spec.id];
+  }
+  const PREF = {
+    deposit: { get: () => S.deposit, set: (x) => { S.deposit = x; } },
+    leverage: { get: () => S.leverage, set: (x) => { S.leverage = x; } },
+    acc_ccy: { get: () => S.acc_ccy, set: (x) => { S.acc_ccy = x.toUpperCase(); } },
+    rate: { get: (ctx) => (ctx.asset ? S.rates[ctx.asset.quote_ccy] || "" : ""), set: (x, ctx) => { if (ctx.asset) S.rates[ctx.asset.quote_ccy] = x; } },
+  };
+  const mkCtx = () => {
+    const asset = curAsset(), acc = S.acc_ccy.trim().toUpperCase() || "USD";
+    return { asset, acc, needRate: !!asset && !JL.calc.sameCcy(asset.quote_ccy, acc) };
+  };
+  const px = (x) => { if (x == null || !Number.isFinite(x)) return "—"; const a = Math.abs(x); return fx(x, 0, a >= 1000 ? 2 : a >= 10 ? 4 : a >= 1 ? 5 : 8); };
+  const FMT = { n, n2, px, sgn, pct: (x, d = 2) => `${n(x, d)}%`, cur: (x, c) => `${n2(x)} ${c}` };
+
+  function tableBlock(t) {
+    return el("div", { class: "cc-alt", id: `cc-tbl-${t.id}` }, el("h3", { text: t.title }),
+      el("div", { class: "jr-table-wrap" }, el("table", { class: "jr-table jr-table-static jr-mini-table" },
+        el("thead", null, el("tr", null, t.head.map((h) => el("th", { scope: "col", text: h })))),
+        el("tbody", null, t.rows.map((row) => el("tr", null, row.map((c, i) => (i === 0 ? el("th", { scope: "row", text: c }) : el("td", { class: "jr-num", text: c })))))))));
+  }
+
+  const lowerFirst = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+  function paintGeneric(box, spec, res, v, ctx, copyText) {
+    if (!res.ok) {
+      const labels = spec.fields.reduce((m, f) => { m[f.key] = typeof f.label === "function" ? f.label(v, ctx) : f.label; return m; }, {});
+      const has = Object.keys(res.errors).length;
+      box.replaceChildren(el("h3", { text: "Результат" }), el("p", { class: "jr-dim", id: "cc-wait" },
+        has ? "Виправ позначені поля, і результат порахується." : `Заповни: ${res.missing.map((k) => lowerFirst((labels[k] || k).replace(/\s*\(необов'язково\)/, "").replace(/, %$/, ""))).join("; ")}.`));
+      return;
+    }
+    const view = spec.view(res, FMT, ctx), tiles = (view.tiles || []).filter(Boolean);
+    copyText.v = view.big && view.big.copy ? view.big.copy : "";
+    box.replaceChildren(
+      view.big ? el("div", { class: "cc-big", id: "cc-big" }, el("span", { class: "cc-big-l", id: "cc-big-l", text: view.big.label }), el("span", { class: "cc-big-v", id: "cc-bigv", text: view.big.value }),
+        view.big.hint ? el("span", { class: "cc-big-h", id: "cc-big-h", text: view.big.hint }) : null,
+        copyText.v ? el("button", { type: "button", class: "jr-btn is-quiet cc-copy", id: "cc-copy", text: "Копіювати", onclick: async () => {
+          try { await navigator.clipboard.writeText(copyText.v); JR.toast(`Скопійовано: ${copyText.v}`); } catch (e) { JR.toast("Не вдалося скопіювати. Виділи число вручну.", "error"); }
+        } }) : null) : null,
+      view.warnings && view.warnings.length ? el("ul", { class: "cc-warn", id: "cc-warn", role: "status" }, view.warnings.map((w) => el("li", { text: w }))) : null,
+      tiles.length ? el("div", { class: "cc-kpis", id: "cc-kpis" }, tiles.map((t) => kpi(t.label, t.value, t.hint, t.sign, `cc-t-${t.id}`))) : null,
+      ...(view.tables || []).map(tableBlock),
+      view.note ? el("p", { class: "jr-note", text: view.note }) : null);
+  }
+
+  function renderGeneric(spec) {
+    const vals = valsOf(spec), nodes = new Map();
+    const result = el("section", { class: "jr-card cc-result", id: "cc-result", "aria-live": "polite", "aria-label": "Результат" });
+    const copyText = { v: "" };
+    const readAll = (ctx) => { const v = {}; for (const f of spec.fields) if (f.kind !== "asset") v[f.key] = f.pref ? PREF[f.pref].get(ctx) : vals[f.key]; return v; };
+    const labelOf = (f, v, ctx) => (typeof f.label === "function" ? f.label(v, ctx) : f.label);
+    const onInput = (f, value) => {
+      if (f.pref) { PREF[f.pref].set(value, mkCtx()); scheduleSave(); } else { vals[f.key] = value; if (f.keep) keepSave(spec, vals); }
+      update();
+    };
+    const ctx0 = mkCtx(), v0 = readAll(ctx0);
+    const items = [];
+    for (const f of spec.fields) {
+      if (f.kind === "hidden") continue;
+      const id = `cg-${f.key}`;
+      let inner, input = null, err = null, labelEl = null;
+      if (f.kind === "asset") {
+        const af = C.assetField(() => update());
+        inner = af.node;
+      } else if (f.kind === "seg") {
+        inner = el("div", { class: "jr-field", id: `${id}-f` }, el("span", { class: "jr-lbl", id: `${id}-l`, text: labelOf(f, v0, ctx0) }),
+          seg(`cg-${spec.id}-${f.key}`, labelOf(f, v0, ctx0), f.options, v0[f.key], (val) => onInput(f, val)));
+        labelEl = inner.querySelector(".jr-lbl");
+      } else {
+        input = textIn(id, v0[f.key], (val) => onInput(f, val), { placeholder: f.ph || "", ...(f.kind === "num" ? {} : { inputmode: "text" }), ...(f.kind === "ccy" ? { maxlength: "8" } : {}) });
+        inner = field(id, labelOf(f, v0, ctx0), input, { hint: f.hint });
+        labelEl = inner.querySelector("label"); err = inner.querySelector(".cc-err");
+      }
+      const wrap = el("div", { class: "cc-fw" + (f.wide || f.heading || f.kind === "asset" ? " is-wide" : ""), "data-key": f.key }, f.heading ? el("h3", { class: "cc-sub", text: f.heading }) : null, inner);
+      nodes.set(f.key, { wrap, input, err, labelEl });
+      items.push(wrap);
+    }
+    const actions = (spec.actions || []).map((a) => el("button", { type: "button", class: "jr-btn", id: `cg-act-${a.id}`, text: a.label, title: a.title || null, onclick: () => { a.run(vals); update(); } }));
+
+    function update() {
+      const ctx = mkCtx(), v = readAll(ctx);
+      for (const f of spec.fields) {
+        const nd = nodes.get(f.key); if (!nd) continue;
+        nd.wrap.hidden = f.show ? !f.show(v, ctx) : false;
+        const lab = labelOf(f, v, ctx);
+        if (nd.labelEl && nd.labelEl.textContent !== lab) nd.labelEl.textContent = lab;
+        if (f.pref === "rate" && nd.input && document.activeElement !== nd.input) nd.input.value = v[f.key] || "";
+      }
+      const res = spec.compute(v, ctx);
+      for (const f of spec.fields) {
+        const nd = nodes.get(f.key); if (!nd || !nd.err) continue;
+        const msg = (!res.ok && res.errors[f.key]) || "";
+        nd.err.textContent = msg;
+        if (msg) nd.input.setAttribute("aria-invalid", "true"); else nd.input.removeAttribute("aria-invalid");
+      }
+      paintGeneric(result, spec, res, v, ctx, copyText);
+    }
+
+    // «Підставити з бектесту»: winrate і середні виграш та збиток колекції
+    const btFill = spec.fromBacktest ? el("div", { class: "jr-field cc-btfill", id: "cg-btfill", hidden: true }) : null;
+    if (btFill) fillFromBacktest(spec, vals, nodes, btFill, update);
+
+    main().replaceChildren(head(spec.title, spec.intro),
+      el("div", { class: "cc-grid" }, el("section", { class: "jr-card cc-form", "aria-label": "Дані" }, btFill, el("div", { class: "cc-fgrid" }, items), actions.length ? el("div", { class: "jr-actions" }, actions) : null), result));
+    update();
+  }
+
+  async function fillFromBacktest(spec, vals, nodes, box, update) {
+    let list = [];
+    try { list = (await JR.api.get("/backtests")).backtests.filter((c) => c.trades > 0); } catch (e) { return; }
+    if (!list.length) return;
+    const sel = el("select", { id: "cg-bt", "aria-label": "Підставити з бектесту" }, el("option", { value: "", text: "Не підставляти" }), list.map((c) => el("option", { value: String(c.id), text: `${c.name} (${c.trades} угод)` })));
+    sel.addEventListener("change", async () => {
+      if (!sel.value) return;
+      try {
+        const { backtest, stats } = await JR.api.get(`/backtests/${sel.value}`);
+        const m = spec.fromBacktest, put = (key, x) => { if (x == null) return; vals[key] = txt(x); const nd = nodes.get(key); if (nd && nd.input) nd.input.value = vals[key]; };
+        put(m.wr, stats.win_rate); put(m.win, stats.avg_win_r); put(m.loss, stats.avg_loss_r == null ? null : Math.abs(stats.avg_loss_r));
+        keepSave(spec, vals); update();
+        JR.toast(`Підставлено з «${backtest.name}»: winrate ${n(stats.win_rate, 1)}%${stats.avg_win_r != null ? `, виграш ${n(stats.avg_win_r)} R` : ""}${stats.avg_loss_r != null ? `, збиток ${n(Math.abs(stats.avg_loss_r))} R` : ""}`);
+      } catch (e) { JR.toast(e.message, "error"); }
+    });
+    box.append(el("label", { for: "cg-bt", text: "Підставити з бектесту" }), sel, el("small", { text: "Winrate, середні виграш і збиток береться зі статистики колекції." }));
+    box.hidden = false;
   }
 
   // ---------------------------------------------------------------- форма активу

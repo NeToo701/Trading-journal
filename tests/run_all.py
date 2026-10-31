@@ -16,6 +16,8 @@ steps = [("Звірка з еталонами (Node)", ["node", str(here / "pari
          ("Браузер: бектести (база, API, інтерфейс, копія, хмара)", [sys.executable, str(here / "e2e_backtest.py")]),
          ("Калькулятори: активи, налаштування, розрахунок лота (Node)", ["node", str(here / "calc.test.js")]),
          ("Браузер: калькулятори (активи, інтерфейс, телефон, копія, хмара)", [sys.executable, str(here / "e2e_calc.py")]),
+         ("Калькулятори: 18 інструментів, математика й перевірка полів (Node)", ["node", str(here / "calc-tools.test.js")]),
+         ("Браузер: калькулятори (форми, результати, спільні налаштування, бектест, телефон)", [sys.executable, str(here / "e2e_calc_tools.py")]),
          ("Календар: скрипт оновлення (Node)", ["node", str(here / "fetch_news.test.js")]),
          ("Браузер: календар новин", [sys.executable, str(here / "e2e_calendar.py")])]
 bad = 0
